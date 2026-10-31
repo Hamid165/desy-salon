@@ -60,7 +60,10 @@ export const initialStore: SalonStore = {
   ],
   profile: {
     name: 'Desy Salon', tag: 'Beauty for your beautiful beginning', phone: '+62 821-3522-1177',
-    address: 'Jl. Desa Pekuncen No.15, Pekuncen, Kec. Jatilawang, Kabupaten Banyumas, Jawa Tengah 53174', openingHours: 'Senin–Minggu, 08.00–17.00 WIB',
+    address: 'Jl. Desa Pekuncen No.15, RT 02/RW 03, Pekuncen, Kec. Jatilawang, Kabupaten Banyumas, Jawa Tengah 53174', openingHours: 'Senin–Minggu, 08.00–17.00 WIB',
+    facebook: 'Desyana', facebookUrl: 'https://www.facebook.com/desyana',
+    instagram: '@desyana_77', instagramUrl: 'https://www.instagram.com/desyana_77/',
+    tiktok: '@desyana.s', tiktokUrl: 'https://www.tiktok.com/@desyana.s',
   },
   credentials: { username: 'desy', password: 'adminDESI@2026' },
 }

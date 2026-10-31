@@ -24,9 +24,10 @@ button { cursor: pointer; }
 
 .font-display { font-family: 'Playfair Display', Georgia, serif; }
 .hero-wash {
-  background-image: linear-gradient(90deg, rgba(255,250,250,.98) 0%, rgba(255,250,250,.9) 40%, rgba(255,250,250,.12) 100%), url('https://images.unsplash.com/photo-1523438885200-e635ba2c371e?auto=format&fit=crop&w=2000&q=90');
-  background-position: center, center 42%;
+  background-image: linear-gradient(90deg, rgba(255,250,250,.98) 0%, rgba(255,250,250,.92) 42%, rgba(255,250,250,.15) 100%), url('https://images.unsplash.com/photo-1523438885200-e635ba2c371e?auto=format&fit=crop&w=2000&q=90');
+  background-position: center, center 48%;
   background-size: cover;
+  background-repeat: no-repeat;
 }
 .soft-pattern {
   background-image: radial-gradient(#fda4af 0.7px, transparent 0.7px);

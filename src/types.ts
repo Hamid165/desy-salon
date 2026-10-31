@@ -44,6 +44,12 @@ export interface SalonProfile {
   phone: string
   address: string
   openingHours: string
+  facebook?: string
+  facebookUrl?: string
+  instagram?: string
+  instagramUrl?: string
+  tiktok?: string
+  tiktokUrl?: string
 }
 
 export interface SalonStore {
