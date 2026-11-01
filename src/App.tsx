@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
-  ArrowRight, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3,
+  ArrowDownAZ, ArrowRight, ArrowUpZA, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3,
   Edit3, Facebook, Heart, Image, Instagram, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle,
   Music2, PackageCheck, Plus, Search, Sparkles, Trash2, User, X,
 } from 'lucide-react'
-import brandLogo from './assets/logo-horizontal.png'
+import brandLogo from './assets/logo-desyana-v2.png'
 import { initialStore } from './data'
 import type { Category, GalleryItem, Package, SalonStore, Schedule } from './types'
 
@@ -408,7 +408,7 @@ function App() {
       phone={store.profile.phone}
     />
     <main>
-      {publicRoute === '/' && <section id="beranda" className="hero-wash relative flex min-h-[calc(100vh-72px)] min-h-[calc(100dvh-72px)] items-center overflow-hidden border-b border-rose-100/60 py-16 sm:py-24">
+      {publicRoute === '/' && <section id="beranda" className="hero-wash relative flex min-h-[calc(100vh-80px)] min-h-[calc(100dvh-80px)] items-center overflow-hidden border-b border-rose-100/60 py-16 sm:py-24">
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-rose-50/40" />
         <div className="relative mx-auto w-full max-w-7xl px-5 sm:px-8 lg:px-12">
           <div className="max-w-[620px] reveal">
@@ -539,10 +539,10 @@ function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavig
     { name: 'Beranda', href: '/' }, { name: 'Katalog', href: '/paket' },
   ]
   return <header className="sticky top-0 z-40 border-b border-rose-100/70 bg-white/85 backdrop-blur-xl">
-    <div className="relative mx-auto flex h-[72px] max-w-7xl items-center justify-between px-5 sm:px-8 lg:px-12">
+    <div className="relative mx-auto flex h-20 sm:h-[84px] max-w-7xl items-center justify-between px-5 sm:px-8 lg:px-12">
       {/* Sisi Kiri: Logo Studio */}
       <a href="/" onClick={(event) => { event.preventDefault(); onNavigate('/') }} className="z-10 flex shrink-0 items-center">
-        <img src={brandLogo} alt={profileName} className="h-10 w-auto max-w-[190px] object-contain" />
+        <img src={brandLogo} alt={profileName} className="h-12 sm:h-14 w-auto max-w-[230px] sm:max-w-[270px] object-contain transition-all" />
       </a>
 
       {/* Tengah: Navigasi Beranda & Katalog di posisi Center */}
@@ -871,8 +871,8 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
 
     {/* Sidebar Mobile Drawer (Merespon klik garis tiga pada mobile/tablet) */}
     <aside className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-slate-200 bg-white shadow-2xl transition-transform duration-300 lg:hidden ${mobileDrawerOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-      <div className="flex h-[76px] items-center justify-between border-b border-slate-100 px-6">
-        <a href="/" className="flex items-center"><img src={brandLogo} alt="Desy Salon" className="h-10 w-auto max-w-[170px] object-contain" /></a>
+      <div className="flex h-[80px] items-center justify-between border-b border-slate-100 px-6">
+        <a href="/" className="flex items-center"><img src={brandLogo} alt="Desy Salon" className="h-11 sm:h-12 w-auto max-w-[200px] object-contain" /></a>
         <button
           type="button"
           aria-label="Tutup menu"
@@ -922,8 +922,8 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
     {/* Sidebar Desktop (Bisa disembunyikan/dimunculkan dengan toggle garis tiga) */}
     {desktopSidebarOpen && (
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-slate-200 bg-white lg:flex">
-        <a href="/" className="flex h-[76px] items-center border-b border-slate-100 px-6">
-          <img src={brandLogo} alt="Desy Salon" className="h-11 w-auto max-w-[190px] object-contain" />
+        <a href="/" className="flex h-[80px] items-center border-b border-slate-100 px-6">
+          <img src={brandLogo} alt="Desy Salon" className="h-12 sm:h-13 w-auto max-w-[220px] object-contain" />
         </a>
         <nav className="flex-1 space-y-1.5 px-3 py-5">
           {tabs.map(({ name, icon: Icon }) => (
@@ -955,7 +955,7 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
 
     {/* Area Konten Utama */}
     <div className={`min-w-0 transition-all duration-300 ${desktopSidebarOpen ? 'lg:pl-64' : 'lg:pl-0'}`}>
-      <header className="sticky top-0 z-20 flex min-h-[76px] flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur sm:flex-nowrap sm:px-8">
+      <header className="sticky top-0 z-20 flex min-h-[80px] flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur sm:flex-nowrap sm:px-8">
         <div className="flex items-center gap-3 min-w-0">
           {/* Tombol Garis Tiga (Menu Toggle Responsif) */}
           <button
@@ -985,29 +985,13 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
           <StatCard title="Booking Mendatang" count={store.schedules.filter((item) => item.status !== 'Lunas').length} detail="Perlu ditangani" icon={CalendarDays} color="sky" />
         </section>
 
-        {/* Tab Sub-Navigasi dengan Icon Lengkap & Konten Tab */}
-        <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex max-w-full gap-1 overflow-x-auto border-b border-slate-200 px-2 pt-3 sm:px-5">
-            {tabs.map(({ name, icon: Icon }) => (
-              <button
-                key={name}
-                onClick={() => setActiveTab(name)}
-                className={`inline-flex shrink-0 items-center gap-2 border-b-2 px-3.5 py-3 text-xs font-semibold transition sm:px-4 sm:text-sm ${
-                  activeTab === name ? 'border-rose-500 text-rose-600' : 'border-transparent text-slate-500 hover:text-slate-800'
-                }`}
-              >
-                <Icon size={16} />
-                {name}
-              </button>
-            ))}
-          </div>
-          <div className="min-w-0 p-3 sm:p-6">
-            {activeTab === 'Katalog' && <PackagesManager store={store} onOpen={onOpen} onDelete={onDelete} />}
-            {activeTab === 'Kategori' && <CategoriesManager store={store} onOpen={onOpen} onRemove={onCategoryRemove} />}
-            {activeTab === 'Jadwal' && <SchedulesManager store={store} onOpen={onOpen} onDelete={onDelete} />}
-            {activeTab === 'Portfolio' && <GalleryManager store={store} onOpen={onOpen} onDelete={onDelete} />}
-            {activeTab === 'Akun' && <SettingsManager store={store} onSave={onSettingsSave} onLogout={onLogout} />}
-          </div>
+        {/* Konten Menu Yang Bersangkutan (Hanya tampil 1 menu yang aktif) */}
+        <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+          {activeTab === 'Katalog' && <PackagesManager store={store} onOpen={onOpen} onDelete={onDelete} />}
+          {activeTab === 'Kategori' && <CategoriesManager store={store} onOpen={onOpen} onRemove={onCategoryRemove} />}
+          {activeTab === 'Jadwal' && <SchedulesManager store={store} onOpen={onOpen} onDelete={onDelete} />}
+          {activeTab === 'Portfolio' && <GalleryManager store={store} onOpen={onOpen} onDelete={onDelete} />}
+          {activeTab === 'Akun' && <SettingsManager store={store} onSave={onSettingsSave} onLogout={onLogout} />}
         </section>
       </main>
     </div>
@@ -1026,12 +1010,267 @@ function PanelHeading({ title, description, onAdd, addLabel = 'Tambah data' }: {
 function EmptyState({ label }: { label: string }) { return <div className="rounded-xl border border-dashed border-slate-200 py-12 text-center text-sm text-slate-500">{label}</div> }
 function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) { return <div className="flex items-center justify-end gap-2"><button type="button" aria-label="Edit" title="Edit" onClick={onEdit} className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"><Edit3 size={17} /></button><button type="button" aria-label="Hapus" title="Hapus" onClick={onDelete} className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"><Trash2 size={17} /></button></div> }
 
+function AdminPagination({
+  currentPage,
+  totalPages,
+  totalItems,
+  pageSize = 6,
+  onPageChange,
+}: {
+  currentPage: number
+  totalPages: number
+  totalItems: number
+  pageSize?: number
+  onPageChange: (page: number) => void
+}) {
+  if (totalItems <= pageSize) return null
+  const startIdx = (currentPage - 1) * pageSize + 1
+  const endIdx = Math.min(currentPage * pageSize, totalItems)
+
+  return (
+    <div className="mt-5 flex flex-col items-center justify-between gap-3 border-t border-slate-100 pt-4 sm:flex-row">
+      <p className="text-xs text-slate-500">
+        Menampilkan <span className="font-semibold text-slate-700">{startIdx}–{endIdx}</span> dari{' '}
+        <span className="font-semibold text-slate-700">{totalItems}</span> data
+      </p>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          disabled={currentPage === 1}
+          onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+          className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Halaman sebelumnya"
+        >
+          <ChevronLeft size={15} />
+        </button>
+        {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+          <button
+            key={pageNum}
+            type="button"
+            onClick={() => onPageChange(pageNum)}
+            className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-bold transition ${
+              currentPage === pageNum
+                ? 'bg-rose-500 text-white shadow-xs'
+                : 'border border-slate-200 bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-600'
+            }`}
+          >
+            {pageNum}
+          </button>
+        ))}
+        <button
+          type="button"
+          disabled={currentPage === totalPages}
+          onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+          className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Halaman berikutnya"
+        >
+          <ChevronRight size={15} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function SearchableSelect({
+  label,
+  name,
+  options,
+  defaultValue = '',
+  placeholder = 'Pilih opsi...',
+  searchPlaceholder = 'Cari opsi...',
+}: {
+  label: string
+  name: string
+  options: readonly string[]
+  defaultValue?: string
+  placeholder?: string
+  searchPlaceholder?: string
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selected, setSelected] = useState(() => defaultValue || (options.length > 0 ? options[0] : ''))
+  const containerRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (defaultValue) {
+      setSelected(defaultValue)
+    } else if (options.length > 0 && !options.includes(selected)) {
+      setSelected(options[0])
+    }
+  }, [defaultValue, options])
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+        setSearchQuery('')
+      }
+    }
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+      const timer = setTimeout(() => searchInputRef.current?.focus(), 50)
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside)
+        clearTimeout(timer)
+      }
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [isOpen])
+
+  const filteredOptions = useMemo(() => {
+    if (!searchQuery.trim()) return options
+    const q = searchQuery.toLowerCase().trim()
+    return options.filter((opt) => opt.toLowerCase().includes(q))
+  }, [options, searchQuery])
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <label className="label" htmlFor={`searchable-btn-${name}`}>
+        {label}
+      </label>
+      <input type="hidden" name={name} value={selected} />
+
+      <button
+        id={`searchable-btn-${name}`}
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="field flex items-center justify-between text-left focus:outline-none"
+      >
+        <span className={`truncate ${selected ? 'font-medium text-slate-800' : 'text-slate-400'}`}>
+          {selected || placeholder}
+        </span>
+        <ChevronDown size={16} className={`shrink-0 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl ring-1 ring-black/5">
+          <div className="border-b border-slate-100 p-2">
+            <div className="relative">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={searchPlaceholder}
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-2.5 text-xs text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:bg-white focus:outline-none"
+              />
+            </div>
+          </div>
+          <div className="max-h-40 overflow-y-auto p-1">
+            {filteredOptions.length > 0 ? (
+              filteredOptions.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => {
+                    setSelected(option)
+                    setIsOpen(false)
+                    setSearchQuery('')
+                  }}
+                  className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-xs transition ${
+                    selected === option
+                      ? 'bg-rose-50 font-bold text-rose-700'
+                      : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                >
+                  <span className="truncate">{option}</span>
+                  {selected === option && <Check size={14} className="shrink-0 text-rose-600" />}
+                </button>
+              ))
+            ) : (
+              <p className="py-3 text-center text-xs text-slate-400">Tidak ada hasil cocok</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void; onDelete: (collection: 'packages' | 'schedules' | 'gallery', id: string) => void }) {
+  const [search, setSearch] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState('Semua')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
+  const [currentPage, setCurrentPage] = useState(1)
+
+  const filteredAndSorted = useMemo(() => {
+    let list = store.packages
+    if (selectedCategory !== 'Semua') {
+      list = list.filter((p) => p.category.toLowerCase() === selectedCategory.toLowerCase())
+    }
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      list = list.filter((p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.description.toLowerCase().includes(q) ||
+        p.category.toLowerCase().includes(q) ||
+        (p.badge && p.badge.toLowerCase().includes(q))
+      )
+    }
+    return [...list].sort((a, b) => {
+      const cmp = a.name.localeCompare(b.name, 'id', { sensitivity: 'base' })
+      return sortOrder === 'asc' ? cmp : -cmp
+    })
+  }, [store.packages, selectedCategory, search, sortOrder])
+
+  const totalItems = filteredAndSorted.length
+  const totalPages = Math.ceil(totalItems / 6) || 1
+  const validPage = Math.min(currentPage, totalPages)
+  const paginated = filteredAndSorted.slice((validPage - 1) * 6, validPage * 6)
+
   return <>
     <PanelHeading title="Kelola Paket" description="Atur layanan, harga, dan informasi katalog publik." onAdd={() => onOpen('package')} addLabel="Tambah paket" />
-    {store.packages.length ? <>
+
+    {/* Toolbar: Search, Filter Kategori, dan Sorting */}
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="relative flex-1 sm:max-w-xs">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+          placeholder="Cari paket atau layanan..."
+          className="field !py-2 !pl-9 !text-xs sm:!text-sm"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => { setSearch(''); setCurrentPage(1); }}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={selectedCategory}
+          onChange={(e) => { setSelectedCategory(e.target.value); setCurrentPage(1); }}
+          className="field !w-auto !py-2 !text-xs sm:!text-sm"
+        >
+          <option value="Semua">Semua Kategori</option>
+          {store.categories.map((c) => (
+            <option key={c.id} value={c.name}>{c.name}</option>
+          ))}
+        </select>
+
+        <button
+          type="button"
+          onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
+          className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+          title={`Urutkan nama paket: ${sortOrder === 'asc' ? 'A ke Z' : 'Z ke A'}`}
+        >
+          {sortOrder === 'asc' ? <ArrowDownAZ size={16} className="text-rose-600" /> : <ArrowUpZA size={16} className="text-rose-600" />}
+          <span>{sortOrder === 'asc' ? 'Nama A-Z' : 'Nama Z-A'}</span>
+        </button>
+      </div>
+    </div>
+
+    {paginated.length ? <>
       <div className="grid gap-3 lg:hidden">
-        {store.packages.map((item) => <article key={item.id} className="min-w-0 rounded-xl border border-slate-200 bg-white p-3">
+        {paginated.map((item) => <article key={item.id} className="min-w-0 rounded-xl border border-slate-200 bg-white p-3">
           <div className="flex min-w-0 items-start gap-3">
             <img src={item.image} alt="" className="h-16 w-20 shrink-0 rounded-lg object-cover" />
             <div className="min-w-0 flex-1"><h3 className="break-words text-sm font-bold text-slate-900">{item.name}</h3><p className="mt-1 text-xs font-semibold text-slate-600">{item.category}</p><p className="mt-1 break-words text-xs text-slate-600">{rupiah(item.price)}</p>{item.badge && <span className="mt-2 inline-flex whitespace-nowrap rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">{item.badge}</span>}</div>
@@ -1040,8 +1279,65 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
           <div className="mt-3 border-t border-slate-100 pt-3"><RowActions onEdit={() => onOpen('package', item)} onDelete={() => onDelete('packages', item.id)} /></div>
         </article>)}
       </div>
-      <div className="hidden overflow-x-auto lg:block"><table className="w-full min-w-[800px] text-left"><thead><tr className="border-y border-slate-100 text-[11px] uppercase tracking-wider text-slate-500"><th className="py-3 pr-4 font-semibold">Paket</th><th className="px-4 py-3 font-semibold">Kategori</th><th className="px-4 py-3 font-semibold">Harga</th><th className="px-4 py-3 font-semibold">Label</th><th className="py-3 pl-4 text-center font-semibold">Aksi</th></tr></thead><tbody>{store.packages.map((item) => <tr key={item.id} className="border-b border-slate-100 last:border-0"><td className="py-3 pr-4"><div className="flex items-center gap-3"><img src={item.image} alt="" className="h-11 w-14 rounded-lg object-cover" /><div className="min-w-0"><p className="text-sm font-semibold text-slate-800">{item.name}</p><p className="max-w-xs truncate text-xs text-slate-500">{item.description}</p></div></div></td><td className="px-4 py-3 text-sm text-slate-700">{item.category}</td><td className="px-4 py-3 text-sm font-semibold text-slate-800">{rupiah(item.price)}</td><td className="px-4 py-3">{item.badge ? <span className="whitespace-nowrap rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">{item.badge}</span> : <span className="text-xs text-slate-500">-</span>}</td><td className="py-3 pl-4"><RowActions onEdit={() => onOpen('package', item)} onDelete={() => onDelete('packages', item.id)} /></td></tr>)}</tbody></table></div>
-    </> : <EmptyState label="Belum ada paket. Tambahkan paket pertama." />}
+      <div className="hidden overflow-x-auto lg:block">
+        <table className="w-full min-w-[800px] text-left">
+          <thead>
+            <tr className="border-y border-slate-100 text-[11px] uppercase tracking-wider text-slate-500">
+              <th
+                className="py-3 pr-4 font-semibold cursor-pointer select-none hover:text-rose-600"
+                onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
+                title="Klik untuk mengubah urutan"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Paket</span>
+                  {sortOrder === 'asc' ? <ArrowDownAZ size={14} className="text-rose-500" /> : <ArrowUpZA size={14} className="text-rose-500" />}
+                </div>
+              </th>
+              <th className="px-4 py-3 font-semibold">Kategori</th>
+              <th className="px-4 py-3 font-semibold">Harga</th>
+              <th className="px-4 py-3 font-semibold">Label</th>
+              <th className="py-3 pl-4 text-center font-semibold">Aksi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paginated.map((item) => (
+              <tr key={item.id} className="border-b border-slate-100 last:border-0">
+                <td className="py-3 pr-4">
+                  <div className="flex items-center gap-3">
+                    <img src={item.image} alt="" className="h-11 w-14 rounded-lg object-cover" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-800">{item.name}</p>
+                      <p className="max-w-xs truncate text-xs text-slate-500">{item.description}</p>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-sm text-slate-700">{item.category}</td>
+                <td className="px-4 py-3 text-sm font-semibold text-slate-800">{rupiah(item.price)}</td>
+                <td className="px-4 py-3">{item.badge ? <span className="whitespace-nowrap rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">{item.badge}</span> : <span className="text-xs text-slate-500">-</span>}</td>
+                <td className="py-3 pl-4"><RowActions onEdit={() => onOpen('package', item)} onDelete={() => onDelete('packages', item.id)} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <AdminPagination
+        currentPage={validPage}
+        totalPages={totalPages}
+        totalItems={totalItems}
+        pageSize={6}
+        onPageChange={setCurrentPage}
+      />
+    </> : (
+      search || selectedCategory !== 'Semua' ? (
+        <div className="rounded-xl border border-dashed border-slate-200 py-10 text-center">
+          <Search className="mx-auto mb-2 text-slate-400" size={20} />
+          <p className="text-sm font-semibold text-slate-700">Paket tidak ditemukan</p>
+          <p className="mt-1 text-xs text-slate-500">Coba ubah kata kunci atau filter kategori.</p>
+        </div>
+      ) : (
+        <EmptyState label="Belum ada paket. Tambahkan paket pertama." />
+      )
+    )}
   </>
 }
 
@@ -1050,6 +1346,27 @@ function CategoriesManager({ store, onOpen, onRemove }: {
   onOpen: (kind: EditorKind, item?: Category) => void
   onRemove: (category: Category) => void
 }) {
+  const [search, setSearch] = useState('')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
+  const [currentPage, setCurrentPage] = useState(1)
+
+  const filteredAndSorted = useMemo(() => {
+    let list = store.categories
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      list = list.filter((c) => c.name.toLowerCase().includes(q) || c.slug.toLowerCase().includes(q))
+    }
+    return [...list].sort((a, b) => {
+      const cmp = a.name.localeCompare(b.name, 'id', { sensitivity: 'base' })
+      return sortOrder === 'asc' ? cmp : -cmp
+    })
+  }, [store.categories, search, sortOrder])
+
+  const totalItems = filteredAndSorted.length
+  const totalPages = Math.ceil(totalItems / 6) || 1
+  const validPage = Math.min(currentPage, totalPages)
+  const paginated = filteredAndSorted.slice((validPage - 1) * 6, validPage * 6)
+
   return <>
     <PanelHeading
       title="Kelola Kategori"
@@ -1057,49 +1374,160 @@ function CategoriesManager({ store, onOpen, onRemove }: {
       onAdd={() => onOpen('category')}
       addLabel="Tambah kategori"
     />
-    {store.categories.length ? (
-      <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-xs">
-        {store.categories.map((category) => {
-          const packageCount = store.packages.filter((item) => item.category.toLowerCase() === category.name.toLowerCase()).length
-          return (
-            <div key={category.id} className="flex items-center justify-between p-4 transition hover:bg-rose-50/20">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
-                  <LayoutDashboard size={18} />
-                </span>
-                <div>
-                  <p className="text-sm font-bold text-slate-800">{category.name}</p>
-                  <p className="text-xs text-slate-500">/{category.slug} · {packageCount} paket terkait</p>
+
+    {/* Toolbar: Search dan Sorting */}
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="relative flex-1 sm:max-w-xs">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+          placeholder="Cari kategori..."
+          className="field !py-2 !pl-9 !text-xs sm:!text-sm"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => { setSearch(''); setCurrentPage(1); }}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
+        className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+        title={`Urutkan kategori: ${sortOrder === 'asc' ? 'A ke Z' : 'Z ke A'}`}
+      >
+        {sortOrder === 'asc' ? <ArrowDownAZ size={16} className="text-rose-600" /> : <ArrowUpZA size={16} className="text-rose-600" />}
+        <span>{sortOrder === 'asc' ? 'Nama A-Z' : 'Nama Z-A'}</span>
+      </button>
+    </div>
+
+    {paginated.length ? (
+      <>
+        <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-xs">
+          {paginated.map((category) => {
+            const packageCount = store.packages.filter((item) => item.category.toLowerCase() === category.name.toLowerCase()).length
+            return (
+              <div key={category.id} className="flex items-center justify-between p-4 transition hover:bg-rose-50/20">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
+                    <LayoutDashboard size={18} />
+                  </span>
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">{category.name}</p>
+                    <p className="text-xs text-slate-500">/{category.slug} · {packageCount} paket terkait</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RowActions
+                    onEdit={() => onOpen('category', category)}
+                    onDelete={() => onRemove(category)}
+                  />
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <RowActions
-                  onEdit={() => onOpen('category', category)}
-                  onDelete={() => onRemove(category)}
-                />
-              </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+        <AdminPagination
+          currentPage={validPage}
+          totalPages={totalPages}
+          totalItems={totalItems}
+          pageSize={6}
+          onPageChange={setCurrentPage}
+        />
+      </>
     ) : (
-      <EmptyState label="Belum ada kategori. Klik Tambah kategori untuk membuat baru." />
+      search ? (
+        <div className="rounded-xl border border-dashed border-slate-200 py-10 text-center">
+          <Search className="mx-auto mb-2 text-slate-400" size={20} />
+          <p className="text-sm font-semibold text-slate-700">Kategori tidak ditemukan</p>
+          <p className="mt-1 text-xs text-slate-500">Coba kata kunci pencarian yang lain.</p>
+        </div>
+      ) : (
+        <EmptyState label="Belum ada kategori. Klik Tambah kategori untuk membuat baru." />
+      )
     )}
   </>
 }
 
 function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void; onDelete: (collection: 'packages' | 'schedules' | 'gallery', id: string) => void }) {
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null)
-  const ordered = [...store.schedules].sort((a, b) => a.eventDate.localeCompare(b.eventDate))
+  const [search, setSearch] = useState('')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
+  const [currentPage, setCurrentPage] = useState(1)
+
+  const filteredAndSorted = useMemo(() => {
+    let list = store.schedules
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      list = list.filter((s) =>
+        s.clientName.toLowerCase().includes(q) ||
+        s.packageName.toLowerCase().includes(q) ||
+        s.location.toLowerCase().includes(q) ||
+        s.notes.toLowerCase().includes(q) ||
+        s.status.toLowerCase().includes(q) ||
+        (s.whatsapp && s.whatsapp.includes(q))
+      )
+    }
+    return [...list].sort((a, b) => {
+      const cmp = a.clientName.localeCompare(b.clientName, 'id', { sensitivity: 'base' })
+      return sortOrder === 'asc' ? cmp : -cmp
+    })
+  }, [store.schedules, search, sortOrder])
+
+  const totalItems = filteredAndSorted.length
+  const totalPages = Math.ceil(totalItems / 6) || 1
+  const validPage = Math.min(currentPage, totalPages)
+  const paginated = filteredAndSorted.slice((validPage - 1) * 6, validPage * 6)
+
   function editSchedule(schedule: Schedule) {
     setSelectedSchedule(null)
     onOpen('schedule', schedule)
   }
+
   return <>
     <PanelHeading title="Jadwal Booking" description="Berikut booking pelanggan" onAdd={() => onOpen('schedule')} addLabel="Tambah jadwal" />
-    {ordered.length ? <>
+
+    {/* Toolbar: Search dan Sorting */}
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="relative flex-1 sm:max-w-xs">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+          placeholder="Cari pelanggan, paket, lokasi..."
+          className="field !py-2 !pl-9 !text-xs sm:!text-sm"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => { setSearch(''); setCurrentPage(1); }}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
+        className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+        title={`Urutkan nama pelanggan: ${sortOrder === 'asc' ? 'A ke Z' : 'Z ke A'}`}
+      >
+        {sortOrder === 'asc' ? <ArrowDownAZ size={16} className="text-rose-600" /> : <ArrowUpZA size={16} className="text-rose-600" />}
+        <span>{sortOrder === 'asc' ? 'Nama A-Z' : 'Nama Z-A'}</span>
+      </button>
+    </div>
+
+    {paginated.length ? <>
       <div className="grid gap-3 md:hidden">
-        {ordered.map((item) => {
+        {paginated.map((item) => {
           const collisions = store.schedules.filter((other) => other.id !== item.id && hasScheduleCollision(other, item))
           return <article key={item.id} role="button" tabIndex={0} onClick={() => setSelectedSchedule(item)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedSchedule(item) } }} className="min-w-0 cursor-pointer rounded-xl border border-slate-200 bg-white p-3 transition hover:border-rose-200 hover:bg-rose-50/30 focus:outline-none focus:ring-2 focus:ring-rose-200 sm:p-4">
             <div className="flex items-start justify-between gap-3">
@@ -1116,31 +1544,60 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
         })}
       </div>
       <div className="hidden overflow-x-auto md:block">
-      <table className="w-full min-w-[720px] text-left">
-        <thead><tr className="border-y border-slate-100 text-[11px] uppercase tracking-wider text-slate-500">
-            <th className="py-3 pr-4 font-semibold">Nama pelanggan</th>
-            <th className="px-4 py-3 font-semibold">Pelaksanaan</th>
-            <th className="px-4 py-3 font-semibold">Paket</th>
-            <th className="px-4 py-3 font-semibold">Status</th>
-            <th className="py-3 pl-4 text-center font-semibold">Aksi</th>
-          </tr>
-        </thead>
-        <tbody>{ordered.map((item) => {
-            const collisions = store.schedules.filter((other) => other.id !== item.id && hasScheduleCollision(other, item))
-            return <tr key={item.id} tabIndex={0} onClick={() => setSelectedSchedule(item)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedSchedule(item) } }} className="cursor-pointer border-b border-slate-100 bg-white transition last:border-0 hover:bg-rose-50/50 focus:bg-rose-50/50 focus:outline-none">
-              <td className="py-3 pr-4 align-top">
-                <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold text-slate-800">{item.clientName}</span>{collisions.length > 0 && <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-bold text-rose-700">Bentrok</span>}</div>
-                {item.notes && <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-slate-500"><span className="font-semibold text-slate-600">Catatan:</span> {item.notes}</p>}
-              </td>
-              <td className="px-4 py-3 align-top"><p className="text-sm font-semibold text-slate-800">{formatDate(item.eventDate)}</p>{item.eventTime && <p className="mt-1 text-xs text-slate-500">{item.eventTime} WIB</p>}<p className="mt-1.5 flex items-start gap-1 text-xs leading-5 text-slate-600"><MapPin size={14} className="mt-0.5 shrink-0 text-rose-500" />{item.location || 'Lokasi belum diisi'}</p></td>
-              <td className="px-4 py-3 align-top text-sm font-semibold text-slate-700">{item.packageName}</td>
-              <td className="px-4 py-3 align-top"><StatusBadge status={item.status} /></td>
-              <td className="py-3 pl-4 text-right align-top" onClick={(event) => event.stopPropagation()}><RowActions onEdit={() => editSchedule(item)} onDelete={() => onDelete('schedules', item.id)} /></td>
+        <table className="w-full min-w-[720px] text-left">
+          <thead>
+            <tr className="border-y border-slate-100 text-[11px] uppercase tracking-wider text-slate-500">
+              <th
+                className="py-3 pr-4 font-semibold cursor-pointer select-none hover:text-rose-600"
+                onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
+                title="Klik untuk mengubah urutan"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Nama pelanggan</span>
+                  {sortOrder === 'asc' ? <ArrowDownAZ size={14} className="text-rose-500" /> : <ArrowUpZA size={14} className="text-rose-500" />}
+                </div>
+              </th>
+              <th className="px-4 py-3 font-semibold">Pelaksanaan</th>
+              <th className="px-4 py-3 font-semibold">Paket</th>
+              <th className="px-4 py-3 font-semibold">Status</th>
+              <th className="py-3 pl-4 text-center font-semibold">Aksi</th>
             </tr>
-          })}</tbody>
-      </table>
+          </thead>
+          <tbody>
+            {paginated.map((item) => {
+              const collisions = store.schedules.filter((other) => other.id !== item.id && hasScheduleCollision(other, item))
+              return <tr key={item.id} tabIndex={0} onClick={() => setSelectedSchedule(item)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedSchedule(item) } }} className="cursor-pointer border-b border-slate-100 bg-white transition last:border-0 hover:bg-rose-50/50 focus:bg-rose-50/50 focus:outline-none">
+                <td className="py-3 pr-4 align-top">
+                  <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold text-slate-800">{item.clientName}</span>{collisions.length > 0 && <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-bold text-rose-700">Bentrok</span>}</div>
+                  {item.notes && <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-slate-500"><span className="font-semibold text-slate-600">Catatan:</span> {item.notes}</p>}
+                </td>
+                <td className="px-4 py-3 align-top"><p className="text-sm font-semibold text-slate-800">{formatDate(item.eventDate)}</p>{item.eventTime && <p className="mt-1 text-xs text-slate-500">{item.eventTime} WIB</p>}<p className="mt-1.5 flex items-start gap-1 text-xs leading-5 text-slate-600"><MapPin size={14} className="mt-0.5 shrink-0 text-rose-500" />{item.location || 'Lokasi belum diisi'}</p></td>
+                <td className="px-4 py-3 align-top text-sm font-semibold text-slate-700">{item.packageName}</td>
+                <td className="px-4 py-3 align-top"><StatusBadge status={item.status} /></td>
+                <td className="py-3 pl-4 text-right align-top" onClick={(event) => event.stopPropagation()}><RowActions onEdit={() => editSchedule(item)} onDelete={() => onDelete('schedules', item.id)} /></td>
+              </tr>
+            })}
+          </tbody>
+        </table>
       </div>
-    </> : <EmptyState label="Belum ada booking tercatat." />}
+      <AdminPagination
+        currentPage={validPage}
+        totalPages={totalPages}
+        totalItems={totalItems}
+        pageSize={6}
+        onPageChange={setCurrentPage}
+      />
+    </> : (
+      search ? (
+        <div className="rounded-xl border border-dashed border-slate-200 py-10 text-center">
+          <Search className="mx-auto mb-2 text-slate-400" size={20} />
+          <p className="text-sm font-semibold text-slate-700">Booking tidak ditemukan</p>
+          <p className="mt-1 text-xs text-slate-500">Coba ubah kata kunci pencarian.</p>
+        </div>
+      ) : (
+        <EmptyState label="Belum ada booking tercatat." />
+      )
+    )}
     {selectedSchedule && <ScheduleDetailsModal schedule={selectedSchedule} collisions={store.schedules.filter((item) => item.id !== selectedSchedule.id && hasScheduleCollision(item, selectedSchedule))} onClose={() => setSelectedSchedule(null)} onEdit={() => editSchedule(selectedSchedule)} />}
   </>
 }
@@ -1170,7 +1627,104 @@ function ScheduleDetailsModal({ schedule, collisions, onClose, onEdit }: { sched
 }
 
 function GalleryManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void; onDelete: (collection: 'packages' | 'schedules' | 'gallery', id: string) => void }) {
-  return <><PanelHeading title="Kelola Foto Portfolio" description="Foto ini tampil sebagai slider di dalam katalog publik." onAdd={() => onOpen('gallery')} addLabel="Tambah foto" />{store.gallery.length ? <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">{store.gallery.map((item) => <article key={item.id} className="overflow-hidden rounded-xl border border-slate-200"><div className="relative h-40"><img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" /><span className="absolute bottom-2 left-2 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-700">{item.eventType}</span></div><div className="flex items-center justify-between p-3"><div className="min-w-0"><p className="truncate text-sm font-semibold text-slate-800">{item.title}</p><p className="text-xs text-slate-500">{item.tag}</p></div><RowActions onEdit={() => onOpen('gallery', item)} onDelete={() => onDelete('gallery', item.id)} /></div></article>)}</div> : <EmptyState label="Belum ada foto portfolio." />}</>
+  const [search, setSearch] = useState('')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
+  const [currentPage, setCurrentPage] = useState(1)
+
+  const filteredAndSorted = useMemo(() => {
+    let list = store.gallery
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      list = list.filter((g) =>
+        g.title.toLowerCase().includes(q) ||
+        g.eventType.toLowerCase().includes(q) ||
+        g.tag.toLowerCase().includes(q) ||
+        g.description.toLowerCase().includes(q)
+      )
+    }
+    return [...list].sort((a, b) => {
+      const cmp = a.title.localeCompare(b.title, 'id', { sensitivity: 'base' })
+      return sortOrder === 'asc' ? cmp : -cmp
+    })
+  }, [store.gallery, search, sortOrder])
+
+  const totalItems = filteredAndSorted.length
+  const totalPages = Math.ceil(totalItems / 6) || 1
+  const validPage = Math.min(currentPage, totalPages)
+  const paginated = filteredAndSorted.slice((validPage - 1) * 6, validPage * 6)
+
+  return <>
+    <PanelHeading title="Kelola Foto Portfolio" description="Foto ini tampil sebagai slider di dalam katalog publik." onAdd={() => onOpen('gallery')} addLabel="Tambah foto" />
+
+    {/* Toolbar: Search dan Sorting */}
+    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="relative flex-1 sm:max-w-xs">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+          placeholder="Cari foto, momen, tag..."
+          className="field !py-2 !pl-9 !text-xs sm:!text-sm"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => { setSearch(''); setCurrentPage(1); }}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
+        className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+        title={`Urutkan judul karya: ${sortOrder === 'asc' ? 'A ke Z' : 'Z ke A'}`}
+      >
+        {sortOrder === 'asc' ? <ArrowDownAZ size={16} className="text-rose-600" /> : <ArrowUpZA size={16} className="text-rose-600" />}
+        <span>{sortOrder === 'asc' ? 'Judul A-Z' : 'Judul Z-A'}</span>
+      </button>
+    </div>
+
+    {paginated.length ? <>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {paginated.map((item) => (
+          <article key={item.id} className="overflow-hidden rounded-xl border border-slate-200">
+            <div className="relative h-40">
+              <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" />
+              <span className="absolute bottom-2 left-2 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-700">{item.eventType}</span>
+            </div>
+            <div className="flex items-center justify-between p-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-800">{item.title}</p>
+                <p className="text-xs text-slate-500">{item.tag}</p>
+              </div>
+              <RowActions onEdit={() => onOpen('gallery', item)} onDelete={() => onDelete('gallery', item.id)} />
+            </div>
+          </article>
+        ))}
+      </div>
+      <AdminPagination
+        currentPage={validPage}
+        totalPages={totalPages}
+        totalItems={totalItems}
+        pageSize={6}
+        onPageChange={setCurrentPage}
+      />
+    </> : (
+      search ? (
+        <div className="rounded-xl border border-dashed border-slate-200 py-10 text-center">
+          <Search className="mx-auto mb-2 text-slate-400" size={20} />
+          <p className="text-sm font-semibold text-slate-700">Foto portfolio tidak ditemukan</p>
+          <p className="mt-1 text-xs text-slate-500">Coba kata kunci pencarian yang lain.</p>
+        </div>
+      ) : (
+        <EmptyState label="Belum ada foto portfolio." />
+      )
+    )}
+  </>
 }
 
 function SettingsManager({ store, onSave, onLogout }: { store: SalonStore; onSave: (event: FormEvent<HTMLFormElement>) => void; onLogout: () => void }) {
@@ -1257,8 +1811,49 @@ function EntityModal({ editor, store, onClose, onSave }: {
   const imageField = (name: 'image' | 'imageUrl', label: string) => <div className="sm:col-span-2"><span className="label">{label} *</span><input type="hidden" name={name} value={imageData} /><label htmlFor="editor-image-file" className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-rose-200 bg-rose-50/60 px-4 py-4 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"><Image size={17} />Pilih gambar dari perangkat<input id="editor-image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" required={!imageData} className="sr-only" onChange={async (event) => { const file = event.currentTarget.files?.[0]; if (!file) return; const fileInput = event.currentTarget; setImageError(''); try { setImageData(await imageFileToDataUrl(file)); setSelectedFileName(file.name) } catch (error) { setImageError(error instanceof Error ? error.message : 'Gambar tidak dapat diproses.'); fileInput.value = '' } }} /></label><p className="mt-1.5 text-xs text-slate-400">PNG, JPG, atau JPEG. Maks. 15 MB; gambar akan diperkecil untuk penyimpanan.</p>{selectedFileName && <p className="mt-1 text-xs font-medium text-slate-600">File dipilih: {selectedFileName}</p>}{imageError && <p role="alert" className="mt-2 text-xs font-medium text-rose-600">{imageError}</p>}{imageData && <div className="mt-3 flex items-center gap-3 rounded-xl border border-slate-100 p-2.5"><img src={imageData} alt="Preview gambar" className="h-16 w-20 rounded-lg bg-slate-100 object-cover" /><span className="flex-1 text-xs font-medium text-slate-600">Preview gambar</span><button type="button" onClick={() => { setImageData(''); setSelectedFileName('') }} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50">Hapus</button></div>}</div>
 
   return <ModalFrame onClose={onClose}><div className="mb-5 flex items-start justify-between"><div><p className="text-xs font-bold uppercase tracking-widest text-rose-500">Studio Manager</p><h2 className="mt-1 font-display text-2xl font-semibold text-slate-900">{titles[kind]}</h2></div><button aria-label="Tutup" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"><X size={19} /></button></div><form onSubmit={(event) => onSave(event, kind, item)} className="grid max-h-[70vh] gap-4 overflow-y-auto px-0.5 sm:grid-cols-2">
-    {kind === 'package' && <>{input('Nama paket *', 'name', packageItem?.name, { required: 'true', placeholder: 'Contoh: Akad Istimewa' })}{select('Kategori', 'category', store.categories.map((category) => category.name), packageItem?.category)}{input('Harga (angka) *', 'price', packageItem ? String(packageItem.price) : '', { type: 'number', min: '1', required: 'true', placeholder: '1850000' })}{input('Harga sebelum diskon', 'originalPrice', packageItem?.originalPrice ? String(packageItem.originalPrice) : '', { type: 'number', min: '1', placeholder: 'Opsional' })}{input('Badge promo', 'badge', packageItem?.badge, { placeholder: 'Contoh: Favorit' })}{imageField('image', 'Foto paket')}{textarea('Deskripsi', 'description', packageItem?.description, 'Ceritakan keunggulan paket...')}{textarea('Fitur (satu fitur per baris)', 'features', packageItem?.features.join('\n'), 'Makeup premium\nHairdo')}<p className="sm:col-span-2 -mt-3 text-[11px] text-slate-400">Setiap baris akan menjadi satu fitur paket.</p></>}
-    {kind === 'schedule' && <>{!scheduleItem && <>{input('Nama klien *', 'clientName', '', { required: 'true', placeholder: 'Nama lengkap' })}{input('Nomor WhatsApp', 'whatsapp', '', { type: 'tel', placeholder: '628xxxxxxxxxx' })}{select('Paket', 'packageName', store.packages.map((entry) => entry.name))}</>}{input('Tanggal acara *', 'eventDate', scheduleItem?.eventDate, { type: 'date', required: 'true' })}{input('Waktu acara (WIB)', 'eventTime', scheduleItem?.eventTime, { type: 'time' })}{select('Status', 'status', scheduleStatuses, scheduleItem?.status)}{input('Lokasi rias', 'location', scheduleItem?.location, { placeholder: 'Gedung / alamat' })}{textarea('Catatan', 'notes', scheduleItem?.notes, 'Kebutuhan khusus...')}</>}
+    {kind === 'package' && <>
+      {input('Nama paket *', 'name', packageItem?.name, { required: 'true', placeholder: 'Contoh: Akad Istimewa' })}
+      <SearchableSelect
+        label="Kategori *"
+        name="category"
+        options={store.categories.map((c) => c.name)}
+        defaultValue={packageItem?.category}
+        searchPlaceholder="Cari kategori..."
+      />
+      {input('Harga (angka) *', 'price', packageItem ? String(packageItem.price) : '', { type: 'number', min: '1', required: 'true', placeholder: '1850000' })}
+      {input('Harga sebelum diskon', 'originalPrice', packageItem?.originalPrice ? String(packageItem.originalPrice) : '', { type: 'number', min: '1', placeholder: 'Opsional' })}
+      {input('Badge promo', 'badge', packageItem?.badge, { placeholder: 'Contoh: Favorit' })}
+      {imageField('image', 'Foto paket')}
+      {textarea('Deskripsi', 'description', packageItem?.description, 'Ceritakan keunggulan paket...')}
+      {textarea('Fitur (satu fitur per baris)', 'features', packageItem?.features.join('\n'), 'Makeup premium\nHairdo')}
+      <p className="sm:col-span-2 -mt-3 text-[11px] text-slate-400">Setiap baris akan menjadi satu fitur paket.</p>
+    </>}
+    {kind === 'schedule' && <>
+      {!scheduleItem && <>
+        {input('Nama klien *', 'clientName', '', { required: 'true', placeholder: 'Nama lengkap' })}
+        {input('Nomor WhatsApp', 'whatsapp', '', { type: 'tel', placeholder: '628xxxxxxxxxx' })}
+        <SearchableSelect
+          label="Pilih Paket *"
+          name="packageName"
+          options={store.packages.map((entry) => entry.name)}
+          searchPlaceholder="Cari paket layanan..."
+        />
+      </>}
+      {scheduleItem && (
+        <SearchableSelect
+          label="Paket Layanan *"
+          name="packageName"
+          options={store.packages.map((entry) => entry.name)}
+          defaultValue={scheduleItem.packageName}
+          searchPlaceholder="Cari paket layanan..."
+        />
+      )}
+      {input('Tanggal acara *', 'eventDate', scheduleItem?.eventDate, { type: 'date', required: 'true' })}
+      {input('Waktu acara (WIB)', 'eventTime', scheduleItem?.eventTime, { type: 'time' })}
+      {select('Status', 'status', scheduleStatuses, scheduleItem?.status)}
+      {input('Lokasi rias', 'location', scheduleItem?.location, { placeholder: 'Gedung / alamat' })}
+      {textarea('Catatan', 'notes', scheduleItem?.notes, 'Kebutuhan khusus...')}
+    </>}
     {kind === 'gallery' && <>{input('Judul gaya *', 'title', galleryItem?.title, { required: 'true', placeholder: 'Contoh: Seruni di Pagi Akad' })}{select('Jenis momen', 'eventType', eventTypes, galleryItem?.eventType)}{input('Tag', 'tag', galleryItem?.tag, { placeholder: 'Soft glam / Adat Jawa' })}{imageField('imageUrl', 'Foto galeri')}{textarea('Deskripsi', 'description', galleryItem?.description, 'Deskripsi singkat foto...')}</>}
     {kind === 'category' && <div className="sm:col-span-2 space-y-3">
       {input('Nama kategori *', 'categoryName', categoryItem?.name, { required: 'true', placeholder: 'Contoh: Prewedding, Hijab, Treatment' })}
