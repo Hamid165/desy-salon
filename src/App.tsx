@@ -7,6 +7,7 @@ import {
 import brandLogo from './assets/logo-desyana-v2.png'
 import { initialStore } from './data'
 import type { Category, GalleryItem, Package, SalonStore, Schedule } from './types'
+import { api } from './services/api'
 
 const STORE_KEY = 'desy-salon-store-v1'
 const legacyAddresses = [
@@ -150,6 +151,48 @@ function App() {
   const [notice, setNotice] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmation, setConfirmation] = useState<{ message: string; onConfirm: () => void } | null>(null)
+  const [isBackendConnected, setIsBackendConnected] = useState<boolean | null>(null)
+
+  // Ambil data terbaru dari Backend Supabase saat aplikasi dibuka
+  useEffect(() => {
+    async function loadBackendData() {
+      try {
+        const health = await api.health.check()
+        if (health.status === 'ok') {
+          setIsBackendConnected(true)
+          const [categories, packages, schedules, gallery, profile] = await Promise.all([
+            api.categories.list().catch(() => null),
+            api.packages.list().catch(() => null),
+            api.schedules.list().catch(() => null),
+            api.gallery.list().catch(() => null),
+            api.profile.get().catch(() => null),
+          ])
+
+          setStore((current) => ({
+            ...current,
+            categories: categories && categories.length > 0 ? categories : current.categories,
+            packages: packages && packages.length > 0 ? packages : current.packages,
+            schedules: schedules && schedules.length > 0 ? schedules : current.schedules,
+            gallery: gallery && gallery.length > 0 ? gallery : current.gallery,
+            profile: profile ? { ...current.profile, ...profile } : current.profile,
+          }))
+
+          try {
+            const authCheck = await api.auth.me()
+            if (authCheck.authenticated && window.location.pathname === '/admin') {
+              setPage('admin')
+            }
+          } catch {
+            // Token belum ada atau kedaluwarsa
+          }
+        }
+      } catch (err) {
+        console.warn('Backend server belum aktif, beralih ke mode penyimpanan lokal.', err)
+        setIsBackendConnected(false)
+      }
+    }
+    loadBackendData()
+  }, [])
 
   useEffect(() => {
     const syncRoute = () => setPublicRoute(publicRoutes.includes(window.location.pathname as PublicRoute) ? window.location.pathname as PublicRoute : '/')
@@ -217,6 +260,8 @@ function App() {
         features: value('features').split('\n').map((feature) => feature.trim()).filter(Boolean),
       }
       setStore((current) => ({ ...current, packages: item ? current.packages.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.packages] }))
+      if (item) api.packages.update(id, entity).catch((e) => console.warn('Gagal update paket ke backend:', e))
+      else api.packages.create(entity).catch((e) => console.warn('Gagal simpan paket ke backend:', e))
     }
     if (kind === 'schedule') {
       const eventTime = value('eventTime') || undefined
@@ -235,6 +280,8 @@ function App() {
       }
       scheduleCollision = store.schedules.find((entry) => entry.id !== id && hasScheduleCollision(entry, entity))
       setStore((current) => ({ ...current, schedules: item ? current.schedules.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.schedules] }))
+      if (item) api.schedules.update(id, entity).catch((e) => console.warn('Gagal update jadwal ke backend:', e))
+      else api.schedules.create(entity, true).catch((e) => console.warn('Gagal simpan jadwal ke backend:', e))
     }
     if (kind === 'gallery') {
       const entity: GalleryItem = {
@@ -242,6 +289,8 @@ function App() {
         imageUrl: value('imageUrl'), description: value('description'),
       }
       setStore((current) => ({ ...current, gallery: item ? current.gallery.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.gallery] }))
+      if (item) api.gallery.update(id, entity).catch((e) => console.warn('Gagal update galeri ke backend:', e))
+      else api.gallery.create(entity).catch((e) => console.warn('Gagal simpan galeri ke backend:', e))
     }
     if (kind === 'category') {
       const name = value('categoryName')
@@ -254,6 +303,8 @@ function App() {
         ...current,
         categories: item ? current.categories.map((c) => c.id === id ? entity : c) : [...current.categories, entity],
       }))
+      if (item) api.categories.update(id, entity).catch((e) => console.warn('Gagal update kategori ke backend:', e))
+      else api.categories.create(entity).catch((e) => console.warn('Gagal simpan kategori ke backend:', e))
       setNotice(item ? 'Kategori berhasil diperbarui.' : 'Kategori baru berhasil ditambahkan.')
     }
 
@@ -269,9 +320,16 @@ function App() {
     const name = 'name' in item ? item.name : 'clientName' in item ? item.clientName : item.title
     setConfirmation({
       message: `Yakin ingin menghapus ${labels[collection]} "${name}"?`,
-      onConfirm: () => {
+      onConfirm: async () => {
         setStore((current) => ({ ...current, [collection]: current[collection].filter((entry) => entry.id !== id) }))
         setNotice('Data berhasil dihapus.')
+        try {
+          if (collection === 'packages') await api.packages.delete(id)
+          if (collection === 'schedules') await api.schedules.delete(id)
+          if (collection === 'gallery') await api.gallery.delete(id)
+        } catch (err) {
+          console.warn('Gagal sinkron hapus data ke backend:', err)
+        }
       },
     })
   }
@@ -291,22 +349,28 @@ function App() {
 
     if (!/^62\d{8,13}$/.test(phone)) return setNotice('Nomor WhatsApp harus berformat 62, contoh 628123456789.')
     if (!username || password.length < 6) return setNotice('Username wajib diisi dan password minimal 6 karakter.')
+
+    const newProfile = {
+      name: store.profile.name,
+      tag: store.profile.tag,
+      phone,
+      address: String(form.get('address') ?? '').trim(),
+      openingHours: String(form.get('openingHours') ?? '').trim(),
+      facebook,
+      facebookUrl,
+      instagram,
+      instagramUrl,
+      tiktok,
+      tiktokUrl,
+    }
+
     setStore((current) => ({
       ...current,
-      profile: {
-        ...current.profile,
-        phone,
-        address: String(form.get('address') ?? '').trim(),
-        openingHours: String(form.get('openingHours') ?? '').trim(),
-        facebook,
-        facebookUrl,
-        instagram,
-        instagramUrl,
-        tiktok,
-        tiktokUrl,
-      },
+      profile: newProfile,
       credentials: { username, password },
     }))
+
+    api.profile.update(newProfile).catch((err) => console.warn('Gagal update profil ke backend:', err))
     setNotice('Pengaturan akun berhasil diperbarui.')
   }
 
@@ -314,9 +378,14 @@ function App() {
     if (store.packages.some((item) => item.category === category.name)) return setNotice('Kategori masih dipakai paket. Pindahkan atau hapus paket terkait terlebih dahulu.')
     setConfirmation({
       message: `Yakin ingin menghapus kategori "${category.name}"?`,
-      onConfirm: () => {
+      onConfirm: async () => {
         setStore((current) => ({ ...current, categories: current.categories.filter((entry) => entry.id !== category.id) }))
         setNotice('Kategori berhasil dihapus.')
+        try {
+          await api.categories.delete(category.id)
+        } catch (err) {
+          console.warn('Gagal hapus kategori di backend:', err)
+        }
       },
     })
   }
@@ -329,7 +398,7 @@ function App() {
     const time = String(form.get('time') ?? '').trim()
     const clientName = String(form.get('clientName') ?? '').trim()
     const phone = normalizePhone(String(form.get('phone') ?? ''))
-    
+
     // Validasi semua field wajib diisi
     if (!clientName || !phone || !date || !time) {
       setNotice('Semua bidang (nama, nomor WhatsApp, tanggal, dan waktu acara WIB) wajib diisi.')
@@ -345,6 +414,8 @@ function App() {
       eventDate: date, eventTime: time, session: sessionForTime(time), location: '', notes: '', status: 'Menunggu Konfirmasi',
     }
     setStore((current) => ({ ...current, schedules: [booking, ...current.schedules] }))
+    api.schedules.create(booking).catch((err) => console.warn('Gagal simpan booking ke backend:', err))
+
     const message = [
       `Halo ${store.profile.name}, saya ingin melanjutkan konfirmasi booking.`, '',
       `Nama: ${clientName}`, `Nomor WhatsApp: +${phone}`, `Paket: ${bookingPackage.name}`,
@@ -365,6 +436,7 @@ function App() {
   }
 
   function logout() {
+    api.auth.logout()
     setPage('public')
     setActiveTab('Katalog')
     navigatePublic('/')
@@ -392,6 +464,7 @@ function App() {
       onCategoryRemove={removeCategory}
       onSettingsSave={saveSettings}
       onLogout={confirmLogout}
+      isBackendConnected={isBackendConnected}
     />
     {editor && <EntityModal editor={editor} store={store} onClose={() => setEditor(null)} onSave={saveEntity} />}
     {confirmation && <ConfirmationModal message={confirmation.message} onCancel={() => setConfirmation(null)} onConfirm={() => { const confirm = confirmation.onConfirm; setConfirmation(null); confirm() }} />}
@@ -444,7 +517,7 @@ function App() {
             </div>
             <label className="relative block w-full lg:max-w-xs"><Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} className="field rounded-full py-2.5 pl-10" placeholder="Cari paket atau layanan..." /></label>
           </div>
-          
+
           {paginatedPackages.length ? (
             <>
               {/* Formasi 3 ke samping x 2 ke bawah di layar besar */}
@@ -482,11 +555,10 @@ function App() {
                           setCurrentPage(pageNum)
                           document.getElementById('paket')?.scrollIntoView({ behavior: 'smooth' })
                         }}
-                        className={`flex h-9 min-w-9 items-center justify-center rounded-xl px-2.5 text-xs font-bold transition ${
-                          currentPage === pageNum
+                        className={`flex h-9 min-w-9 items-center justify-center rounded-xl px-2.5 text-xs font-bold transition ${currentPage === pageNum
                             ? 'bg-rose-500 text-white shadow-xs'
                             : 'border border-slate-200 bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-600'
-                        }`}
+                          }`}
                       >
                         {pageNum}
                       </button>
@@ -553,11 +625,10 @@ function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavig
             href={href}
             onClick={(event) => { event.preventDefault(); onNavigate(href) }}
             aria-current={activeRoute === href ? 'page' : undefined}
-            className={`relative py-1 text-sm font-semibold transition ${
-              activeRoute === href
+            className={`relative py-1 text-sm font-semibold transition ${activeRoute === href
                 ? 'text-rose-600 after:absolute after:-bottom-1 after:left-0 after:right-0 after:h-0.5 after:rounded-full after:bg-rose-500'
                 : 'text-slate-600 hover:text-rose-600'
-            }`}
+              }`}
           >
             {name}
           </a>
@@ -595,9 +666,8 @@ function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavig
             key={name}
             href={href}
             aria-current={activeRoute === href ? 'page' : undefined}
-            className={`block py-2.5 text-sm font-semibold text-center ${
-              activeRoute === href ? 'text-rose-600 font-bold bg-rose-50/60 rounded-lg' : 'text-slate-700'
-            }`}
+            className={`block py-2.5 text-sm font-semibold text-center ${activeRoute === href ? 'text-rose-600 font-bold bg-rose-50/60 rounded-lg' : 'text-slate-700'
+              }`}
           >
             {name}
           </a>
@@ -813,11 +883,24 @@ function LoginPage({ store, onOwnerLogin }: { store: SalonStore; onOwnerLogin: (
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (username.trim() === store.credentials.username && password === store.credentials.password) onOwnerLogin()
-    else setError('Username atau password belum sesuai.')
+    setLoading(true)
+    setError('')
+    try {
+      await api.auth.login(username.trim(), password)
+      onOwnerLogin()
+    } catch (err) {
+      if (username.trim() === store.credentials.username && password === store.credentials.password) {
+        onOwnerLogin()
+      } else {
+        setError(err instanceof Error ? err.message : 'Username atau password belum sesuai.')
+      }
+    } finally {
+      setLoading(false)
+    }
   }
 
   return <main className="flex min-h-screen items-center justify-center bg-rose-50/50 px-5 py-10">
@@ -828,18 +911,21 @@ function LoginPage({ store, onOwnerLogin }: { store: SalonStore; onOwnerLogin: (
         <div><label className="label" htmlFor="auth-username">Username</label><input required autoComplete="username" id="auth-username" value={username} onChange={(event) => setUsername(event.target.value)} className="field py-3" placeholder="Masukkan username admin" /></div>
         <div><label className="label" htmlFor="auth-password">Password</label><input required autoComplete="current-password" id="auth-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="field py-3" placeholder="Masukkan password" /></div>
         {error && <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p>}
-        <button type="submit" className="btn-primary w-full py-3">Masuk</button>
+        <button type="submit" disabled={loading} className="btn-primary w-full py-3 disabled:opacity-60">
+          {loading ? 'Memeriksa...' : 'Masuk'}
+        </button>
       </form>
     </div>
   </main>
 }
 
-function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCategoryRemove, onSettingsSave, onLogout }: {
+function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCategoryRemove, onSettingsSave, onLogout, isBackendConnected }: {
   store: SalonStore; activeTab: AdminTab; setActiveTab: (tab: AdminTab) => void;
   onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void;
   onDelete: (collection: 'packages' | 'schedules' | 'gallery', id: string) => void;
   onCategoryRemove: (category: Category) => void;
   onSettingsSave: (event: FormEvent<HTMLFormElement>) => void; onLogout: () => void;
+  isBackendConnected?: boolean | null;
 }) {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true)
@@ -887,9 +973,8 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
           <button
             key={name}
             onClick={() => { setActiveTab(name); setMobileDrawerOpen(false) }}
-            className={`flex w-full items-center gap-3.5 rounded-xl px-4 py-3 text-sm font-semibold transition ${
-              activeTab === name ? 'bg-rose-50 text-rose-700 shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-            }`}
+            className={`flex w-full items-center gap-3.5 rounded-xl px-4 py-3 text-sm font-semibold transition ${activeTab === name ? 'bg-rose-50 text-rose-700 shadow-xs' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
           >
             <Icon size={19} className={activeTab === name ? 'text-rose-600' : 'text-slate-400'} />
             {name}
@@ -930,9 +1015,8 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
             <button
               key={name}
               onClick={() => setActiveTab(name)}
-              className={`flex w-full items-center gap-3.5 rounded-xl px-3.5 py-3 text-sm font-semibold transition ${
-                activeTab === name ? 'bg-rose-50 text-rose-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
-              }`}
+              className={`flex w-full items-center gap-3.5 rounded-xl px-3.5 py-3 text-sm font-semibold transition ${activeTab === name ? 'bg-rose-50 text-rose-700' : 'text-slate-500 hover:bg-slate-50 hover:text-slate-800'
+                }`}
             >
               <Icon size={18} className={activeTab === name ? 'text-rose-600' : 'text-slate-400'} />
               {name}
@@ -973,6 +1057,18 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {isBackendConnected === true && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              Supabase Terhubung
+            </span>
+          )}
+          {isBackendConnected === false && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 border border-amber-200" title="Backend server belum terhubung. Berjalan dalam mode offline lokal.">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+              Mode Offline
+            </span>
+          )}
           <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">Admin · Desy</span>
           <button type="button" onClick={onLogout} className="btn-secondary !px-3 !py-2 text-xs sm:!px-4 sm:text-sm"><LogOut size={15} />Keluar</button>
         </div>
@@ -1048,11 +1144,10 @@ function AdminPagination({
             key={pageNum}
             type="button"
             onClick={() => onPageChange(pageNum)}
-            className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-bold transition ${
-              currentPage === pageNum
+            className={`flex h-8 min-w-8 items-center justify-center rounded-lg px-2 text-xs font-bold transition ${currentPage === pageNum
                 ? 'bg-rose-500 text-white shadow-xs'
                 : 'border border-slate-200 bg-white text-slate-700 hover:bg-rose-50 hover:text-rose-600'
-            }`}
+              }`}
           >
             {pageNum}
           </button>
@@ -1169,11 +1264,10 @@ function SearchableSelect({
                     setIsOpen(false)
                     setSearchQuery('')
                   }}
-                  className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-xs transition ${
-                    selected === option
+                  className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-xs transition ${selected === option
                       ? 'bg-rose-50 font-bold text-rose-700'
                       : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
-                  }`}
+                    }`}
                 >
                   <span className="truncate">{option}</span>
                   {selected === option && <Check size={14} className="shrink-0 text-rose-600" />}
@@ -1743,7 +1837,7 @@ function SettingsManager({ store, onSave, onLogout }: { store: SalonStore; onSav
       <div><label className="label" htmlFor="studio-tag">Tagline</label><input id="studio-tag" className="field bg-slate-50" value={store.profile.tag} readOnly /></div>
       <div><label className="label" htmlFor="studio-phone">Nomor WhatsApp tujuan</label><input required id="studio-phone" name="phone" defaultValue={store.profile.phone} className="field" /><p className="mt-1 text-[11px] text-slate-500">Format internasional tanpa +, contoh 628123456789.</p></div>
       <div><label className="label" htmlFor="studio-hours">Jam operasional</label><input id="studio-hours" name="openingHours" defaultValue={store.profile.openingHours} className="field" /></div>
-      
+
       {/* Media Sosial Studio */}
       <div className="md:col-span-2 mt-2 border-t border-slate-100 pt-4">
         <h3 className="text-sm font-bold text-slate-800">Media Sosial Studio</h3>
@@ -1804,11 +1898,12 @@ function EntityModal({ editor, store, onClose, onSave }: {
   const [imageData, setImageData] = useState(kind === 'package' ? packageItem?.image ?? '' : kind === 'gallery' ? galleryItem?.imageUrl ?? '' : '')
   const [selectedFileName, setSelectedFileName] = useState('')
   const [imageError, setImageError] = useState('')
+  const [isUploadingImage, setIsUploadingImage] = useState(false)
 
   const input = (label: string, name: string, value = '', props: Record<string, string> = {}) => <div><label className="label" htmlFor={`editor-${name}`}>{label}</label><input id={`editor-${name}`} name={name} defaultValue={value} className="field" {...props} /></div>
   const select = (label: string, name: string, options: readonly string[], selected = '') => <div><label className="label" htmlFor={`editor-${name}`}>{label}</label><select id={`editor-${name}`} name={name} defaultValue={selected || options[0]} className="field">{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
   const textarea = (label: string, name: string, value = '', placeholder = '') => <div className="sm:col-span-2"><label className="label" htmlFor={`editor-${name}`}>{label}</label><textarea id={`editor-${name}`} name={name} defaultValue={value} placeholder={placeholder} className="field min-h-20 resize-y" /></div>
-  const imageField = (name: 'image' | 'imageUrl', label: string) => <div className="sm:col-span-2"><span className="label">{label} *</span><input type="hidden" name={name} value={imageData} /><label htmlFor="editor-image-file" className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-rose-200 bg-rose-50/60 px-4 py-4 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"><Image size={17} />Pilih gambar dari perangkat<input id="editor-image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" required={!imageData} className="sr-only" onChange={async (event) => { const file = event.currentTarget.files?.[0]; if (!file) return; const fileInput = event.currentTarget; setImageError(''); try { setImageData(await imageFileToDataUrl(file)); setSelectedFileName(file.name) } catch (error) { setImageError(error instanceof Error ? error.message : 'Gambar tidak dapat diproses.'); fileInput.value = '' } }} /></label><p className="mt-1.5 text-xs text-slate-400">PNG, JPG, atau JPEG. Maks. 15 MB; gambar akan diperkecil untuk penyimpanan.</p>{selectedFileName && <p className="mt-1 text-xs font-medium text-slate-600">File dipilih: {selectedFileName}</p>}{imageError && <p role="alert" className="mt-2 text-xs font-medium text-rose-600">{imageError}</p>}{imageData && <div className="mt-3 flex items-center gap-3 rounded-xl border border-slate-100 p-2.5"><img src={imageData} alt="Preview gambar" className="h-16 w-20 rounded-lg bg-slate-100 object-cover" /><span className="flex-1 text-xs font-medium text-slate-600">Preview gambar</span><button type="button" onClick={() => { setImageData(''); setSelectedFileName('') }} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50">Hapus</button></div>}</div>
+  const imageField = (name: 'image' | 'imageUrl', label: string) => <div className="sm:col-span-2"><span className="label">{label} *</span><input type="hidden" name={name} value={imageData} /><label htmlFor="editor-image-file" className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-rose-200 bg-rose-50/60 px-4 py-4 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"><Image size={17} />{isUploadingImage ? 'Mengunggah ke Supabase Storage...' : 'Pilih gambar dari perangkat'}<input id="editor-image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" required={!imageData} disabled={isUploadingImage} className="sr-only" onChange={async (event) => { const file = event.currentTarget.files?.[0]; if (!file) return; const fileInput = event.currentTarget; setImageError(''); setSelectedFileName(file.name); setIsUploadingImage(true); try { const res = await api.gallery.uploadImage(file); setImageData(res.url); } catch { try { setImageData(await imageFileToDataUrl(file)); } catch (error) { setImageError(error instanceof Error ? error.message : 'Gambar tidak dapat diproses.'); fileInput.value = ''; } } finally { setIsUploadingImage(false); } }} /></label><p className="mt-1.5 text-xs text-slate-400">PNG, JPG, atau JPEG. File otomatis dioptimalkan dan diunggah ke storage.</p>{selectedFileName && <p className="mt-1 text-xs font-medium text-slate-600">File dipilih: {selectedFileName}</p>}{imageError && <p role="alert" className="mt-2 text-xs font-medium text-rose-600">{imageError}</p>}{imageData && <div className="mt-3 flex items-center gap-3 rounded-xl border border-slate-100 p-2.5"><img src={imageData} alt="Preview gambar" className="h-16 w-20 rounded-lg bg-slate-100 object-cover" /><span className="flex-1 text-xs font-medium text-slate-600">Preview gambar</span><button type="button" onClick={() => { setImageData(''); setSelectedFileName('') }} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50">Hapus</button></div>}</div>
 
   return <ModalFrame onClose={onClose}><div className="mb-5 flex items-start justify-between"><div><p className="text-xs font-bold uppercase tracking-widest text-rose-500">Studio Manager</p><h2 className="mt-1 font-display text-2xl font-semibold text-slate-900">{titles[kind]}</h2></div><button aria-label="Tutup" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"><X size={19} /></button></div><form onSubmit={(event) => onSave(event, kind, item)} className="grid max-h-[70vh] gap-4 overflow-y-auto px-0.5 sm:grid-cols-2">
     {kind === 'package' && <>
