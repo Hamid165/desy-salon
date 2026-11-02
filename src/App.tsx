@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
-  ArrowDownAZ, ArrowRight, ArrowUpZA, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3,
+  ArrowDownAZ, ArrowRight, ArrowUpDown, ArrowUpZA, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3,
   Edit3, Facebook, Heart, Image, Instagram, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle,
   Music2, PackageCheck, Plus, Search, Sparkles, Trash2, User, X,
 } from 'lucide-react'
@@ -151,15 +151,12 @@ function App() {
   const [notice, setNotice] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmation, setConfirmation] = useState<{ message: string; onConfirm: () => void } | null>(null)
-  const [isBackendConnected, setIsBackendConnected] = useState<boolean | null>(null)
-
   // Ambil data terbaru dari Backend Supabase saat aplikasi dibuka
   useEffect(() => {
     async function loadBackendData() {
       try {
         const health = await api.health.check()
         if (health.status === 'ok') {
-          setIsBackendConnected(true)
           const [categories, packages, schedules, gallery, profile] = await Promise.all([
             api.categories.list().catch(() => null),
             api.packages.list().catch(() => null),
@@ -188,7 +185,6 @@ function App() {
         }
       } catch (err) {
         console.warn('Backend server belum aktif, beralih ke mode penyimpanan lokal.', err)
-        setIsBackendConnected(false)
       }
     }
     loadBackendData()
@@ -252,12 +248,26 @@ function App() {
     if (kind === 'package') {
       const name = value('name')
       const price = Number(value('price'))
-      if (!name || !price || !value('image')) return setNotice('Nama, harga, dan foto wajib diisi.')
+      const badge = value('badge')
+      const description = value('description')
+      const originalPriceVal = value('originalPrice')
+      const originalPrice = originalPriceVal ? Number(originalPriceVal) : undefined
+      const features = value('features').split('\n').map((feature) => feature.trim()).filter(Boolean)
+
+      if (!name || !price || !value('image') || !description) return setNotice('Nama, harga, foto, dan deskripsi wajib diisi.')
+      if (name.length > 50) return setNotice('Nama paket maksimal 50 karakter.')
+      if (badge && badge.length > 18) return setNotice('Badge promo maksimal 18 karakter.')
+      if (description.length > 150) return setNotice('Deskripsi maksimal 150 karakter.')
+      if (price > 100000000) return setNotice('Harga paket maksimal Rp 100.000.000.')
+      if (originalPrice && originalPrice > 100000000) return setNotice('Harga sebelum diskon maksimal Rp 100.000.000.')
+      if (features.length > 8) return setNotice('Maksimal 8 poin fitur.')
+      if (features.some((f) => f.length > 60)) return setNotice('Tiap baris fitur maksimal 60 karakter agar kartu tetap rapi.')
+
       const entity: Package = {
         id, name, category: value('category'), price,
-        originalPrice: value('originalPrice') ? Number(value('originalPrice')) : undefined,
-        badge: value('badge') || undefined, image: value('image'), description: value('description'),
-        features: value('features').split('\n').map((feature) => feature.trim()).filter(Boolean),
+        originalPrice,
+        badge: badge || undefined, image: value('image'), description,
+        features,
       }
       setStore((current) => ({ ...current, packages: item ? current.packages.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.packages] }))
       if (item) api.packages.update(id, entity).catch((e) => console.warn('Gagal update paket ke backend:', e))
@@ -266,16 +276,27 @@ function App() {
     if (kind === 'schedule') {
       const eventTime = value('eventTime') || undefined
       const previousSchedule = item as Schedule | undefined
+      const clientName = previousSchedule?.clientName ?? value('clientName')
+      const whatsapp = previousSchedule?.whatsapp ?? (value('whatsapp') || undefined)
+      const location = value('location')
+      const notes = value('notes')
+
+      if (!clientName) return setNotice('Nama klien wajib diisi.')
+      if (clientName.length > 50) return setNotice('Nama klien maksimal 50 karakter.')
+      if (whatsapp && whatsapp.length > 16) return setNotice('Nomor WhatsApp maksimal 16 karakter.')
+      if (location.length > 120) return setNotice('Lokasi rias maksimal 120 karakter.')
+      if (notes.length > 200) return setNotice('Catatan maksimal 200 karakter.')
+
       const entity: Schedule = {
         id,
-        clientName: previousSchedule?.clientName ?? value('clientName'),
+        clientName,
         packageName: previousSchedule?.packageName ?? value('packageName'),
         eventDate: value('eventDate'),
         eventTime,
-        whatsapp: previousSchedule?.whatsapp ?? (value('whatsapp') || undefined),
+        whatsapp,
         session: eventTime ? sessionForTime(eventTime) : previousSchedule?.session ?? 'Full Day',
-        location: value('location'),
-        notes: value('notes'),
+        location,
+        notes,
         status: value('status') as Schedule['status'],
       }
       scheduleCollision = store.schedules.find((entry) => entry.id !== id && hasScheduleCollision(entry, entity))
@@ -284,9 +305,19 @@ function App() {
       else api.schedules.create(entity, true).catch((e) => console.warn('Gagal simpan jadwal ke backend:', e))
     }
     if (kind === 'gallery') {
+      const title = value('title')
+      const tag = value('tag')
+      const imageUrl = value('imageUrl')
+      const description = value('description')
+
+      if (!title || !imageUrl || !tag) return setNotice('Judul, tag, dan foto portofolio wajib diisi.')
+      if (title.length > 50) return setNotice('Judul foto maksimal 50 karakter.')
+      if (tag.length > 20) return setNotice('Tag tampilan maksimal 20 karakter.')
+      if (description.length > 150) return setNotice('Deskripsi foto maksimal 150 karakter.')
+
       const entity: GalleryItem = {
-        id, title: value('title'), eventType: value('eventType') as GalleryItem['eventType'], tag: value('tag'),
-        imageUrl: value('imageUrl'), description: value('description'),
+        id, title, eventType: value('eventType') as GalleryItem['eventType'], tag,
+        imageUrl, description,
       }
       setStore((current) => ({ ...current, gallery: item ? current.gallery.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.gallery] }))
       if (item) api.gallery.update(id, entity).catch((e) => console.warn('Gagal update galeri ke backend:', e))
@@ -295,6 +326,7 @@ function App() {
     if (kind === 'category') {
       const name = value('categoryName')
       if (!name) return setNotice('Nama kategori wajib diisi.')
+      if (name.length > 30) return setNotice('Nama kategori maksimal 30 karakter.')
       const slug = name.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-')
       const existing = store.categories.find((c) => c.slug === slug && c.id !== id)
       if (existing) return setNotice('Kategori dengan nama serupa sudah ada.')
@@ -396,12 +428,22 @@ function App() {
     const form = new FormData(event.currentTarget)
     const date = String(form.get('date') ?? '').trim()
     const time = String(form.get('time') ?? '').trim()
-    const clientName = String(form.get('clientName') ?? '').trim()
-    const phone = normalizePhone(String(form.get('phone') ?? ''))
+    const rawClientName = String(form.get('clientName') ?? '').trim()
+    const rawPhone = String(form.get('phone') ?? '').trim()
+    const clientName = rawClientName.slice(0, 50)
+    const phone = normalizePhone(rawPhone)
 
     // Validasi semua field wajib diisi
     if (!clientName || !phone || !date || !time) {
       setNotice('Semua bidang (nama, nomor WhatsApp, tanggal, dan waktu acara WIB) wajib diisi.')
+      return
+    }
+    if (rawClientName.length > 50) {
+      setNotice('Nama lengkap maksimal 50 karakter.')
+      return
+    }
+    if (rawPhone.length > 16) {
+      setNotice('Nomor WhatsApp maksimal 16 digit.')
       return
     }
     if (!/^62\d{8,13}$/.test(phone)) {
@@ -464,7 +506,6 @@ function App() {
       onCategoryRemove={removeCategory}
       onSettingsSave={saveSettings}
       onLogout={confirmLogout}
-      isBackendConnected={isBackendConnected}
     />
     {editor && <EntityModal editor={editor} store={store} onClose={() => setEditor(null)} onSave={saveEntity} />}
     {confirmation && <ConfirmationModal message={confirmation.message} onCancel={() => setConfirmation(null)} onConfirm={() => { const confirm = confirmation.onConfirm; setConfirmation(null); confirm() }} />}
@@ -834,6 +875,9 @@ function PublicFooter({ store, onNavigate }: { store: SalonStore; onNavigate: (r
 }
 
 function BookingModal({ item, onClose, onSubmit }: { item: Package; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  const [clientName, setClientName] = useState('')
+  const [phone, setPhone] = useState('')
+
   return <ModalFrame onClose={onClose}>
     <div className="mb-5 flex items-start justify-between">
       <div>
@@ -854,20 +898,64 @@ function BookingModal({ item, onClose, onSubmit }: { item: Package; onClose: () 
     <form onSubmit={onSubmit} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="label" htmlFor="booking-name">Nama lengkap *</label>
-          <input required id="booking-name" name="clientName" autoComplete="name" className="field" placeholder="Nama yang bisa kami hubungi" />
+          <div className="flex items-center justify-between">
+            <label className="label" htmlFor="booking-name">Nama lengkap *</label>
+            <span className={`text-[11px] ${clientName.length > 45 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+              {clientName.length}/50
+            </span>
+          </div>
+          <input
+            required
+            id="booking-name"
+            name="clientName"
+            type="text"
+            value={clientName}
+            onChange={(e) => setClientName(e.target.value)}
+            maxLength={50}
+            autoComplete="name"
+            className="field"
+            placeholder="Nama yang bisa kami hubungi"
+          />
         </div>
         <div>
-          <label className="label" htmlFor="booking-phone">Nomor WhatsApp *</label>
-          <input required id="booking-phone" name="phone" type="tel" inputMode="tel" pattern="[+]?[0-9() -]{9,18}" autoComplete="tel" className="field" placeholder="08xxxxxxxxxx" />
+          <div className="flex items-center justify-between">
+            <label className="label" htmlFor="booking-phone">Nomor WhatsApp *</label>
+            <span className="text-[11px] text-slate-400">{phone.length}/16</span>
+          </div>
+          <input
+            required
+            id="booking-phone"
+            name="phone"
+            type="tel"
+            inputMode="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value.replace(/[^\d+]/g, ''))}
+            maxLength={16}
+            autoComplete="tel"
+            className="field"
+            placeholder="08xxxxxxxxxx"
+          />
         </div>
         <div>
           <label className="label" htmlFor="booking-date">Tanggal acara *</label>
-          <input required id="booking-date" name="date" type="date" min={new Date().toISOString().slice(0, 10)} className="field" />
+          <input
+            required
+            id="booking-date"
+            name="date"
+            type="date"
+            min={new Date().toISOString().slice(0, 10)}
+            className="field"
+          />
         </div>
         <div>
           <label className="label" htmlFor="booking-time">Waktu acara (WIB) *</label>
-          <input required id="booking-time" name="time" type="time" className="field" />
+          <input
+            required
+            id="booking-time"
+            name="time"
+            type="time"
+            className="field"
+          />
           <p className="mt-1 text-[11px] text-slate-500">Waktu Indonesia Barat (WIB)</p>
         </div>
       </div>
@@ -919,13 +1007,12 @@ function LoginPage({ store, onOwnerLogin }: { store: SalonStore; onOwnerLogin: (
   </main>
 }
 
-function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCategoryRemove, onSettingsSave, onLogout, isBackendConnected }: {
+function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCategoryRemove, onSettingsSave, onLogout }: {
   store: SalonStore; activeTab: AdminTab; setActiveTab: (tab: AdminTab) => void;
   onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void;
   onDelete: (collection: 'packages' | 'schedules' | 'gallery', id: string) => void;
   onCategoryRemove: (category: Category) => void;
   onSettingsSave: (event: FormEvent<HTMLFormElement>) => void; onLogout: () => void;
-  isBackendConnected?: boolean | null;
 }) {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true)
@@ -1057,18 +1144,6 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {isBackendConnected === true && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              Supabase Terhubung
-            </span>
-          )}
-          {isBackendConnected === false && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 border border-amber-200" title="Backend server belum terhubung. Berjalan dalam mode offline lokal.">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
-              Mode Offline
-            </span>
-          )}
           <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">Admin · Desy</span>
           <button type="button" onClick={onLogout} className="btn-secondary !px-3 !py-2 text-xs sm:!px-4 sm:text-sm"><LogOut size={15} />Keluar</button>
         </div>
@@ -1549,14 +1624,56 @@ function CategoriesManager({ store, onOpen, onRemove }: {
   </>
 }
 
+function formatMonthYear(ym: string) {
+  try {
+    const [year, month] = ym.split('-')
+    const date = new Date(Number(year), Number(month) - 1, 1)
+    return new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(date)
+  } catch {
+    return ym
+  }
+}
+
+type ScheduleSort = 'date-asc' | 'date-desc' | 'name-asc' | 'name-desc'
+
 function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void; onDelete: (collection: 'packages' | 'schedules' | 'gallery', id: string) => void }) {
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null)
   const [search, setSearch] = useState('')
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
+  const [selectedMonth, setSelectedMonth] = useState<string>('all')
+  const [sortBy, setSortBy] = useState<ScheduleSort>('date-asc')
   const [currentPage, setCurrentPage] = useState(1)
+
+  const availableMonths = useMemo(() => {
+    const monthCounts = new Map<string, number>()
+    store.schedules.forEach((s) => {
+      if (s.eventDate && s.eventDate.length >= 7) {
+        const ym = s.eventDate.slice(0, 7)
+        monthCounts.set(ym, (monthCounts.get(ym) || 0) + 1)
+      }
+    })
+
+    const now = new Date()
+    const currentYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    if (!monthCounts.has(currentYm)) {
+      monthCounts.set(currentYm, 0)
+    }
+
+    return Array.from(monthCounts.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([ym, count]) => ({
+        value: ym,
+        label: formatMonthYear(ym),
+        count,
+      }))
+  }, [store.schedules])
 
   const filteredAndSorted = useMemo(() => {
     let list = store.schedules
+
+    if (selectedMonth !== 'all') {
+      list = list.filter((s) => s.eventDate && s.eventDate.startsWith(selectedMonth))
+    }
+
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter((s) =>
@@ -1569,10 +1686,29 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
       )
     }
     return [...list].sort((a, b) => {
-      const cmp = a.clientName.localeCompare(b.clientName, 'id', { sensitivity: 'base' })
-      return sortOrder === 'asc' ? cmp : -cmp
+      if (sortBy === 'date-asc') {
+        const timeA = `${a.eventDate || '9999-99-99'}T${a.eventTime || '00:00'}`
+        const timeB = `${b.eventDate || '9999-99-99'}T${b.eventTime || '00:00'}`
+        const cmp = timeA.localeCompare(timeB)
+        return cmp !== 0 ? cmp : a.clientName.localeCompare(b.clientName, 'id', { sensitivity: 'base' })
+      }
+      if (sortBy === 'date-desc') {
+        const timeA = `${a.eventDate || ''}T${a.eventTime || '00:00'}`
+        const timeB = `${b.eventDate || ''}T${b.eventTime || '00:00'}`
+        const cmp = timeB.localeCompare(timeA)
+        return cmp !== 0 ? cmp : a.clientName.localeCompare(b.clientName, 'id', { sensitivity: 'base' })
+      }
+      if (sortBy === 'name-asc') {
+        const cmp = a.clientName.localeCompare(b.clientName, 'id', { sensitivity: 'base' })
+        return cmp !== 0 ? cmp : `${a.eventDate || ''}T${a.eventTime || '00:00'}`.localeCompare(`${b.eventDate || ''}T${b.eventTime || '00:00'}`)
+      }
+      if (sortBy === 'name-desc') {
+        const cmp = b.clientName.localeCompare(a.clientName, 'id', { sensitivity: 'base' })
+        return cmp !== 0 ? cmp : `${a.eventDate || ''}T${a.eventTime || '00:00'}`.localeCompare(`${b.eventDate || ''}T${b.eventTime || '00:00'}`)
+      }
+      return 0
     })
-  }, [store.schedules, search, sortOrder])
+  }, [store.schedules, selectedMonth, search, sortBy])
 
   const totalItems = filteredAndSorted.length
   const totalPages = Math.ceil(totalItems / 6) || 1
@@ -1587,36 +1723,64 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
   return <>
     <PanelHeading title="Jadwal Booking" description="Berikut booking pelanggan" onAdd={() => onOpen('schedule')} addLabel="Tambah jadwal" />
 
-    {/* Toolbar: Search dan Sorting */}
+    {/* Toolbar: Search, Filter Bulan, dan Sorting */}
     <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="relative flex-1 sm:max-w-xs">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-          placeholder="Cari pelanggan, paket, lokasi..."
-          className="field !py-2 !pl-9 !text-xs sm:!text-sm"
-        />
-        {search && (
-          <button
-            type="button"
-            onClick={() => { setSearch(''); setCurrentPage(1); }}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+      <div className="flex flex-1 flex-col gap-2.5 sm:flex-row sm:items-center">
+        {/* Search Bar */}
+        <div className="relative flex-1 sm:max-w-xs">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+            placeholder="Cari pelanggan, paket, lokasi..."
+            className="field !py-2 !pl-9 !text-xs sm:!text-sm"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => { setSearch(''); setCurrentPage(1); }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        {/* Dropdown Filter Bulan */}
+        <div className="relative sm:w-56">
+          <CalendarDays size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <select
+            value={selectedMonth}
+            onChange={(e) => { setSelectedMonth(e.target.value); setCurrentPage(1); }}
+            className="field !py-2 !pl-9 !pr-8 !text-xs sm:!text-sm appearance-none bg-white cursor-pointer"
           >
-            <X size={14} />
-          </button>
-        )}
+            <option value="all">Semua Bulan ({store.schedules.length})</option>
+            {availableMonths.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label} ({m.count})
+              </option>
+            ))}
+          </select>
+          <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        </div>
       </div>
 
-      <button
-        type="button"
-        onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
-        className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
-        title={`Urutkan nama pelanggan: ${sortOrder === 'asc' ? 'A ke Z' : 'Z ke A'}`}
-      >
-        {sortOrder === 'asc' ? <ArrowDownAZ size={16} className="text-rose-600" /> : <ArrowUpZA size={16} className="text-rose-600" />}
-        <span>{sortOrder === 'asc' ? 'Nama A-Z' : 'Nama Z-A'}</span>
-      </button>
+      {/* Dropdown Sorting */}
+      <div className="relative shrink-0 sm:w-52">
+        <ArrowUpDown size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <select
+          value={sortBy}
+          onChange={(e) => { setSortBy(e.target.value as ScheduleSort); setCurrentPage(1); }}
+          className="field !py-2 !pl-9 !pr-8 !text-xs sm:!text-sm appearance-none bg-white cursor-pointer font-medium text-slate-700"
+          aria-label="Urutkan jadwal"
+        >
+          <option value="date-asc">Tanggal Terdekat</option>
+          <option value="date-desc">Tanggal Terjauh</option>
+          <option value="name-asc">Nama Pelanggan (A–Z)</option>
+          <option value="name-desc">Nama Pelanggan (Z–A)</option>
+        </select>
+        <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+      </div>
     </div>
 
     {paginated.length ? <>
@@ -1642,16 +1806,33 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
           <thead>
             <tr className="border-y border-slate-100 text-[11px] uppercase tracking-wider text-slate-500">
               <th
-                className="py-3 pr-4 font-semibold cursor-pointer select-none hover:text-rose-600"
-                onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
-                title="Klik untuk mengubah urutan"
+                className="py-3 pr-4 font-semibold cursor-pointer select-none hover:text-rose-600 transition"
+                onClick={() => {
+                  setSortBy((prev) => (prev === 'name-asc' ? 'name-desc' : 'name-asc'))
+                  setCurrentPage(1)
+                }}
+                title="Klik untuk mengubah urutan nama pelanggan"
               >
                 <div className="flex items-center gap-1.5">
                   <span>Nama pelanggan</span>
-                  {sortOrder === 'asc' ? <ArrowDownAZ size={14} className="text-rose-500" /> : <ArrowUpZA size={14} className="text-rose-500" />}
+                  {sortBy === 'name-asc' && <ArrowDownAZ size={14} className="text-rose-600" />}
+                  {sortBy === 'name-desc' && <ArrowUpZA size={14} className="text-rose-600" />}
                 </div>
               </th>
-              <th className="px-4 py-3 font-semibold">Pelaksanaan</th>
+              <th
+                className="px-4 py-3 font-semibold cursor-pointer select-none hover:text-rose-600 transition"
+                onClick={() => {
+                  setSortBy((prev) => (prev === 'date-asc' ? 'date-desc' : 'date-asc'))
+                  setCurrentPage(1)
+                }}
+                title="Klik untuk mengubah urutan tanggal acara"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span>Pelaksanaan</span>
+                  {sortBy === 'date-asc' && <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold text-rose-600">Terdekat ↑</span>}
+                  {sortBy === 'date-desc' && <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold text-rose-600">Terjauh ↓</span>}
+                </div>
+              </th>
               <th className="px-4 py-3 font-semibold">Paket</th>
               <th className="px-4 py-3 font-semibold">Status</th>
               <th className="py-3 pl-4 text-center font-semibold">Aksi</th>
@@ -1682,11 +1863,18 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
         onPageChange={setCurrentPage}
       />
     </> : (
-      search ? (
+      search || selectedMonth !== 'all' ? (
         <div className="rounded-xl border border-dashed border-slate-200 py-10 text-center">
-          <Search className="mx-auto mb-2 text-slate-400" size={20} />
-          <p className="text-sm font-semibold text-slate-700">Booking tidak ditemukan</p>
-          <p className="mt-1 text-xs text-slate-500">Coba ubah kata kunci pencarian.</p>
+          <CalendarDays className="mx-auto mb-2 text-slate-400" size={24} />
+          <p className="text-sm font-semibold text-slate-700">Tidak ada jadwal pada filter ini</p>
+          <p className="mt-1 text-xs text-slate-500">Coba pilih bulan lain atau hapus kata kunci pencarian.</p>
+          <button
+            type="button"
+            onClick={() => { setSearch(''); setSelectedMonth('all'); setCurrentPage(1); }}
+            className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+          >
+            Reset Filter
+          </button>
         </div>
       ) : (
         <EmptyState label="Belum ada booking tercatat." />
@@ -1899,15 +2087,77 @@ function EntityModal({ editor, store, onClose, onSave }: {
   const [selectedFileName, setSelectedFileName] = useState('')
   const [imageError, setImageError] = useState('')
   const [isUploadingImage, setIsUploadingImage] = useState(false)
+  const [packageName, setPackageName] = useState(packageItem?.name ?? '')
+  const [packageBadge, setPackageBadge] = useState(packageItem?.badge ?? '')
+  const [packageDesc, setPackageDesc] = useState(packageItem?.description ?? '')
+  const [packageFeatures, setPackageFeatures] = useState(packageItem?.features?.join('\n') ?? '')
+  const [packagePrice, setPackagePrice] = useState(packageItem ? String(packageItem.price) : '')
+  const [packageOriginalPrice, setPackageOriginalPrice] = useState(packageItem?.originalPrice ? String(packageItem.originalPrice) : '')
+
+  const [schedClientName, setSchedClientName] = useState(scheduleItem?.clientName ?? '')
+  const [schedWhatsapp, setSchedWhatsapp] = useState(scheduleItem?.whatsapp ?? '')
+  const [schedLocation, setSchedLocation] = useState(scheduleItem?.location ?? '')
+  const [schedNotes, setSchedNotes] = useState(scheduleItem?.notes ?? '')
+
+  const [galleryTitle, setGalleryTitle] = useState(galleryItem?.title ?? '')
+  const [galleryTag, setGalleryTag] = useState(galleryItem?.tag ?? '')
+  const [galleryDesc, setGalleryDesc] = useState(galleryItem?.description ?? '')
+
+  const [categoryName, setCategoryName] = useState(categoryItem?.name ?? '')
+
+  function handlePriceInput(val: string, setter: (v: string) => void) {
+    const digits = val.replace(/\D/g, '')
+    if (!digits) {
+      setter('')
+      return
+    }
+    const clean = digits.replace(/^0+/, '')
+    if (clean === '') {
+      setter('0')
+      return
+    }
+    if (clean.length > 9 || Number(clean) > 100000000) {
+      setter('100000000')
+    } else {
+      setter(clean)
+    }
+  }
+
+  function handleFeaturesInput(val: string) {
+    const lines = val.split('\n')
+    // Otomatis kunci maksimal 8 baris dan tiap baris maksimal 60 karakter
+    const clamped = lines.slice(0, 8).map((line) => line.slice(0, 60)).join('\n')
+    setPackageFeatures(clamped)
+  }
+
+  const featureLinesArray = packageFeatures.split('\n')
+  const filledFeatureLines = featureLinesArray.filter((l) => l.trim().length > 0)
+  const maxFeatureLineLength = Math.max(0, ...featureLinesArray.map((l) => l.length))
 
   const input = (label: string, name: string, value = '', props: Record<string, string> = {}) => <div><label className="label" htmlFor={`editor-${name}`}>{label}</label><input id={`editor-${name}`} name={name} defaultValue={value} className="field" {...props} /></div>
   const select = (label: string, name: string, options: readonly string[], selected = '') => <div><label className="label" htmlFor={`editor-${name}`}>{label}</label><select id={`editor-${name}`} name={name} defaultValue={selected || options[0]} className="field">{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
-  const textarea = (label: string, name: string, value = '', placeholder = '') => <div className="sm:col-span-2"><label className="label" htmlFor={`editor-${name}`}>{label}</label><textarea id={`editor-${name}`} name={name} defaultValue={value} placeholder={placeholder} className="field min-h-20 resize-y" /></div>
   const imageField = (name: 'image' | 'imageUrl', label: string) => <div className="sm:col-span-2"><span className="label">{label} *</span><input type="hidden" name={name} value={imageData} /><label htmlFor="editor-image-file" className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-rose-200 bg-rose-50/60 px-4 py-4 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"><Image size={17} />{isUploadingImage ? 'Mengunggah ke Supabase Storage...' : 'Pilih gambar dari perangkat'}<input id="editor-image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" required={!imageData} disabled={isUploadingImage} className="sr-only" onChange={async (event) => { const file = event.currentTarget.files?.[0]; if (!file) return; const fileInput = event.currentTarget; setImageError(''); setSelectedFileName(file.name); setIsUploadingImage(true); try { const res = await api.gallery.uploadImage(file); setImageData(res.url); } catch { try { setImageData(await imageFileToDataUrl(file)); } catch (error) { setImageError(error instanceof Error ? error.message : 'Gambar tidak dapat diproses.'); fileInput.value = ''; } } finally { setIsUploadingImage(false); } }} /></label><p className="mt-1.5 text-xs text-slate-400">PNG, JPG, atau JPEG. File otomatis dioptimalkan dan diunggah ke storage.</p>{selectedFileName && <p className="mt-1 text-xs font-medium text-slate-600">File dipilih: {selectedFileName}</p>}{imageError && <p role="alert" className="mt-2 text-xs font-medium text-rose-600">{imageError}</p>}{imageData && <div className="mt-3 flex items-center gap-3 rounded-xl border border-slate-100 p-2.5"><img src={imageData} alt="Preview gambar" className="h-16 w-20 rounded-lg bg-slate-100 object-cover" /><span className="flex-1 text-xs font-medium text-slate-600">Preview gambar</span><button type="button" onClick={() => { setImageData(''); setSelectedFileName('') }} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50">Hapus</button></div>}</div>
 
   return <ModalFrame onClose={onClose}><div className="mb-5 flex items-start justify-between"><div><p className="text-xs font-bold uppercase tracking-widest text-rose-500">Studio Manager</p><h2 className="mt-1 font-display text-2xl font-semibold text-slate-900">{titles[kind]}</h2></div><button aria-label="Tutup" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"><X size={19} /></button></div><form onSubmit={(event) => onSave(event, kind, item)} className="grid max-h-[70vh] gap-4 overflow-y-auto px-0.5 sm:grid-cols-2">
     {kind === 'package' && <>
-      {input('Nama paket *', 'name', packageItem?.name, { required: 'true', placeholder: 'Contoh: Akad Istimewa' })}
+      <div>
+        <div className="flex items-center justify-between">
+          <label className="label" htmlFor="editor-name">Nama paket *</label>
+          <span className={`text-[11px] ${packageName.length > 45 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+            {packageName.length}/50
+          </span>
+        </div>
+        <input
+          id="editor-name"
+          name="name"
+          value={packageName}
+          onChange={(e) => setPackageName(e.target.value)}
+          maxLength={50}
+          required
+          className="field"
+          placeholder="Contoh: Akad Istimewa"
+        />
+      </div>
       <SearchableSelect
         label="Kategori *"
         name="category"
@@ -1915,18 +2165,140 @@ function EntityModal({ editor, store, onClose, onSave }: {
         defaultValue={packageItem?.category}
         searchPlaceholder="Cari kategori..."
       />
-      {input('Harga (angka) *', 'price', packageItem ? String(packageItem.price) : '', { type: 'number', min: '1', required: 'true', placeholder: '1850000' })}
-      {input('Harga sebelum diskon', 'originalPrice', packageItem?.originalPrice ? String(packageItem.originalPrice) : '', { type: 'number', min: '1', placeholder: 'Opsional' })}
-      {input('Badge promo', 'badge', packageItem?.badge, { placeholder: 'Contoh: Favorit' })}
+      <div>
+        <div className="flex items-center justify-between">
+          <label className="label" htmlFor="editor-price">Harga (angka) *</label>
+          <span className="text-[11px] font-semibold text-rose-600">
+            {packagePrice ? rupiah(Number(packagePrice)) : 'Rp 0'}
+          </span>
+        </div>
+        <input
+          id="editor-price"
+          name="price"
+          type="text"
+          inputMode="numeric"
+          maxLength={9}
+          required
+          value={packagePrice}
+          onChange={(e) => handlePriceInput(e.target.value, setPackagePrice)}
+          className="field"
+          placeholder="Contoh: 1850000"
+        />
+        <p className="mt-1 text-[11px] text-slate-400">Maks. Rp 100.000.000</p>
+      </div>
+      <div>
+        <div className="flex items-center justify-between">
+          <label className="label" htmlFor="editor-originalPrice">Harga sebelum diskon</label>
+          <span className="text-[11px] font-semibold text-slate-500">
+            {packageOriginalPrice ? rupiah(Number(packageOriginalPrice)) : '-'}
+          </span>
+        </div>
+        <input
+          id="editor-originalPrice"
+          name="originalPrice"
+          type="text"
+          inputMode="numeric"
+          maxLength={9}
+          value={packageOriginalPrice}
+          onChange={(e) => handlePriceInput(e.target.value, setPackageOriginalPrice)}
+          className="field"
+          placeholder="Opsional (misal: 2200000)"
+        />
+        <p className="mt-1 text-[11px] text-slate-400">Maks. Rp 100.000.000</p>
+      </div>
+      <div>
+        <div className="flex items-center justify-between">
+          <label className="label" htmlFor="editor-badge">Badge promo</label>
+          <span className={`text-[11px] ${packageBadge.length > 15 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+            {packageBadge.length}/18
+          </span>
+        </div>
+        <input
+          id="editor-badge"
+          name="badge"
+          value={packageBadge}
+          onChange={(e) => setPackageBadge(e.target.value)}
+          maxLength={18}
+          className="field"
+          placeholder="Contoh: Favorit / Best Seller"
+        />
+      </div>
       {imageField('image', 'Foto paket')}
-      {textarea('Deskripsi', 'description', packageItem?.description, 'Ceritakan keunggulan paket...')}
-      {textarea('Fitur (satu fitur per baris)', 'features', packageItem?.features.join('\n'), 'Makeup premium\nHairdo')}
-      <p className="sm:col-span-2 -mt-3 text-[11px] text-slate-400">Setiap baris akan menjadi satu fitur paket.</p>
+      <div className="sm:col-span-2">
+        <div className="flex items-center justify-between">
+          <label className="label" htmlFor="editor-description">Deskripsi *</label>
+          <span className={`text-[11px] ${packageDesc.length > 130 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+            {packageDesc.length}/150
+          </span>
+        </div>
+        <textarea
+          id="editor-description"
+          name="description"
+          value={packageDesc}
+          onChange={(e) => setPackageDesc(e.target.value)}
+          maxLength={150}
+          required
+          placeholder="Ceritakan keunggulan paket secara ringkas (1-2 kalimat)..."
+          className="field min-h-20 resize-y"
+        />
+      </div>
+      <div className="sm:col-span-2">
+        <div className="flex items-center justify-between">
+          <label className="label" htmlFor="editor-features">Fitur (satu fitur per baris)</label>
+          <span className={`text-[11px] ${filledFeatureLines.length >= 8 || maxFeatureLineLength >= 55 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+            {filledFeatureLines.length}/8 baris · Terpanjang: {maxFeatureLineLength}/60 kkt
+          </span>
+        </div>
+        <textarea
+          id="editor-features"
+          name="features"
+          value={packageFeatures}
+          onChange={(e) => handleFeaturesInput(e.target.value)}
+          placeholder="Makeup akad premium&#10;Hijab do & aksesori&#10;Hairdo keluarga 1 orang"
+          className="field min-h-24 resize-y"
+        />
+        <p className="mt-1 text-[11px] text-slate-400">
+          Tiap baris otomatis terkunci di <strong>maks. 60 karakter</strong> dan <strong>maks. 8 baris</strong>.
+        </p>
+      </div>
     </>}
     {kind === 'schedule' && <>
       {!scheduleItem && <>
-        {input('Nama klien *', 'clientName', '', { required: 'true', placeholder: 'Nama lengkap' })}
-        {input('Nomor WhatsApp', 'whatsapp', '', { type: 'tel', placeholder: '628xxxxxxxxxx' })}
+        <div>
+          <div className="flex items-center justify-between">
+            <label className="label" htmlFor="editor-clientName">Nama klien *</label>
+            <span className={`text-[11px] ${schedClientName.length > 45 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+              {schedClientName.length}/50
+            </span>
+          </div>
+          <input
+            id="editor-clientName"
+            name="clientName"
+            value={schedClientName}
+            onChange={(e) => setSchedClientName(e.target.value)}
+            maxLength={50}
+            required
+            className="field"
+            placeholder="Nama lengkap klien"
+          />
+        </div>
+        <div>
+          <div className="flex items-center justify-between">
+            <label className="label" htmlFor="editor-whatsapp">Nomor WhatsApp</label>
+            <span className="text-[11px] text-slate-400">{schedWhatsapp.length}/16</span>
+          </div>
+          <input
+            id="editor-whatsapp"
+            name="whatsapp"
+            type="tel"
+            inputMode="tel"
+            maxLength={16}
+            value={schedWhatsapp}
+            onChange={(e) => setSchedWhatsapp(e.target.value.replace(/[^\d+]/g, ''))}
+            className="field"
+            placeholder="Contoh: 628123456789"
+          />
+        </div>
         <SearchableSelect
           label="Pilih Paket *"
           name="packageName"
@@ -1946,13 +2318,118 @@ function EntityModal({ editor, store, onClose, onSave }: {
       {input('Tanggal acara *', 'eventDate', scheduleItem?.eventDate, { type: 'date', required: 'true' })}
       {input('Waktu acara (WIB)', 'eventTime', scheduleItem?.eventTime, { type: 'time' })}
       {select('Status', 'status', scheduleStatuses, scheduleItem?.status)}
-      {input('Lokasi rias', 'location', scheduleItem?.location, { placeholder: 'Gedung / alamat' })}
-      {textarea('Catatan', 'notes', scheduleItem?.notes, 'Kebutuhan khusus...')}
+      <div>
+        <div className="flex items-center justify-between">
+          <label className="label" htmlFor="editor-location">Lokasi rias</label>
+          <span className={`text-[11px] ${schedLocation.length > 105 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+            {schedLocation.length}/120
+          </span>
+        </div>
+        <input
+          id="editor-location"
+          name="location"
+          value={schedLocation}
+          onChange={(e) => setSchedLocation(e.target.value)}
+          maxLength={120}
+          className="field"
+          placeholder="Contoh: Gedung Serbaguna Melati, Yogyakarta"
+        />
+      </div>
+      <div className="sm:col-span-2">
+        <div className="flex items-center justify-between">
+          <label className="label" htmlFor="editor-notes">Catatan tambahan</label>
+          <span className={`text-[11px] ${schedNotes.length > 180 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+            {schedNotes.length}/200
+          </span>
+        </div>
+        <textarea
+          id="editor-notes"
+          name="notes"
+          value={schedNotes}
+          onChange={(e) => setSchedNotes(e.target.value)}
+          maxLength={200}
+          placeholder="Kebutuhan khusus (misal: kulit sensitif, pasang melati)..."
+          className="field min-h-20 resize-y"
+        />
+      </div>
     </>}
-    {kind === 'gallery' && <>{input('Judul gaya *', 'title', galleryItem?.title, { required: 'true', placeholder: 'Contoh: Seruni di Pagi Akad' })}{select('Jenis momen', 'eventType', eventTypes, galleryItem?.eventType)}{input('Tag', 'tag', galleryItem?.tag, { placeholder: 'Soft glam / Adat Jawa' })}{imageField('imageUrl', 'Foto galeri')}{textarea('Deskripsi', 'description', galleryItem?.description, 'Deskripsi singkat foto...')}</>}
+    {kind === 'gallery' && <>
+      <div>
+        <div className="flex items-center justify-between">
+          <label className="label" htmlFor="editor-title">Judul gaya *</label>
+          <span className={`text-[11px] ${galleryTitle.length > 45 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+            {galleryTitle.length}/50
+          </span>
+        </div>
+        <input
+          id="editor-title"
+          name="title"
+          value={galleryTitle}
+          onChange={(e) => setGalleryTitle(e.target.value)}
+          maxLength={50}
+          required
+          className="field"
+          placeholder="Contoh: Seruni di Pagi Akad"
+        />
+      </div>
+      {select('Jenis momen', 'eventType', eventTypes, galleryItem?.eventType)}
+      <div>
+        <div className="flex items-center justify-between">
+          <label className="label" htmlFor="editor-tag">Tag tampilan *</label>
+          <span className={`text-[11px] ${galleryTag.length > 17 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+            {galleryTag.length}/20
+          </span>
+        </div>
+        <input
+          id="editor-tag"
+          name="tag"
+          value={galleryTag}
+          onChange={(e) => setGalleryTag(e.target.value)}
+          maxLength={20}
+          required
+          className="field"
+          placeholder="Contoh: Soft glam / Adat Jawa"
+        />
+      </div>
+      {imageField('imageUrl', 'Foto galeri')}
+      <div className="sm:col-span-2">
+        <div className="flex items-center justify-between">
+          <label className="label" htmlFor="editor-gallery-desc">Deskripsi foto</label>
+          <span className={`text-[11px] ${galleryDesc.length > 130 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+            {galleryDesc.length}/150
+          </span>
+        </div>
+        <textarea
+          id="editor-gallery-desc"
+          name="description"
+          value={galleryDesc}
+          onChange={(e) => setGalleryDesc(e.target.value)}
+          maxLength={150}
+          placeholder="Deskripsi singkat foto atau riasan..."
+          className="field min-h-20 resize-y"
+        />
+      </div>
+    </>}
     {kind === 'category' && <div className="sm:col-span-2 space-y-3">
-      {input('Nama kategori *', 'categoryName', categoryItem?.name, { required: 'true', placeholder: 'Contoh: Prewedding, Hijab, Treatment' })}
-      <p className="text-xs text-slate-500">Kategori baru akan langsung tampil sebagai tombol filter di menu katalog publik.</p>
+      <div>
+        <div className="flex items-center justify-between">
+          <label className="label" htmlFor="editor-categoryName">Nama kategori *</label>
+          <span className={`text-[11px] ${categoryName.length > 25 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+            {categoryName.length}/30
+          </span>
+        </div>
+        <input
+          id="editor-categoryName"
+          name="categoryName"
+          value={categoryName}
+          onChange={(e) => setCategoryName(e.target.value)}
+          maxLength={30}
+          required
+          className="field"
+          placeholder="Contoh: Prewedding, Hijab, Treatment"
+        />
+      </div>
+      <p className="text-xs text-slate-500">Maks. 30 karakter. Kategori baru akan langsung tampil sebagai tombol filter di menu katalog publik.</p>
     </div>}
     <div className="sticky bottom-0 flex justify-end gap-2 bg-white pt-2 sm:col-span-2"><button type="button" onClick={onClose} className="btn-secondary">Batal</button><button type="submit" className="btn-primary"><Check size={16} />Simpan</button></div>
   </form></ModalFrame>
