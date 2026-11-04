@@ -17,6 +17,12 @@ const legacyProfile = {
   phone: '6281234567890',
   openingHours: 'Senin–Sabtu, 09.00–18.00 WIB',
 }
+const legacyFacebookUrls = [
+  'https://www.facebook.com/desyana',
+  'https://facebook.com/desyana',
+  'https://www.facebook.com/desyana/',
+  'https://facebook.com/desyana/',
+]
 const scheduleStatuses = ['Menunggu Konfirmasi', 'Terkonfirmasi', 'Menunggu DP', 'Lunas'] as const
 const eventTypes = ['Akad Nikah', 'Resepsi Adat', 'Wisuda & Pesta'] as const
 const publicRoutes = ['/', '/paket'] as const
@@ -40,7 +46,9 @@ function readStore(): SalonStore {
       }
       if (parsed.profile?.openingHours === legacyProfile.openingHours) profile.openingHours = initialStore.profile.openingHours
       if (!profile.facebook) profile.facebook = initialStore.profile.facebook
-      if (!profile.facebookUrl) profile.facebookUrl = initialStore.profile.facebookUrl
+      if (!profile.facebookUrl || legacyFacebookUrls.includes(profile.facebookUrl)) {
+        profile.facebookUrl = initialStore.profile.facebookUrl
+      }
       if (!profile.instagram) profile.instagram = initialStore.profile.instagram
       if (!profile.instagramUrl) profile.instagramUrl = initialStore.profile.instagramUrl
       if (!profile.tiktok) profile.tiktok = initialStore.profile.tiktok
@@ -282,8 +290,8 @@ function App() {
     const phone = String(form.get('phone') ?? '').replace(/\D/g, '')
     const username = String(form.get('username') ?? '').trim()
     const password = String(form.get('password') ?? '')
-    const facebook = String(form.get('facebook') ?? '').trim() || 'Desyana'
-    const facebookUrl = String(form.get('facebookUrl') ?? '').trim() || 'https://www.facebook.com/desyana'
+    const facebook = String(form.get('facebook') ?? '').trim() || initialStore.profile.facebook
+    const facebookUrl = String(form.get('facebookUrl') ?? '').trim() || initialStore.profile.facebookUrl
     const instagram = String(form.get('instagram') ?? '').trim() || '@desyana_77'
     const instagramUrl = String(form.get('instagramUrl') ?? '').trim() || 'https://www.instagram.com/desyana_77/'
     const tiktok = String(form.get('tiktok') ?? '').trim() || '@desyana.s'
@@ -725,12 +733,12 @@ function PublicFooter({ store, onNavigate }: { store: SalonStore; onNavigate: (r
         <h3 className="mb-4 text-sm font-bold text-slate-900">Media Sosial</h3>
         <div className="grid gap-3">
           <a
-            href={store.profile.facebookUrl || 'https://www.facebook.com/desyana'}
+            href={store.profile.facebookUrl || initialStore.profile.facebookUrl}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 transition hover:text-rose-600"
           >
-            <Facebook size={18} className="shrink-0 text-rose-500" /> {store.profile.facebook || 'Desyana'}
+            <Facebook size={18} className="shrink-0 text-rose-500" /> {store.profile.facebook || initialStore.profile.facebook}
           </a>
           <a
             href={store.profile.instagramUrl || 'https://www.instagram.com/desyana_77/'}
@@ -1795,11 +1803,11 @@ function SettingsManager({ store, onSave, onLogout }: { store: SalonStore; onSav
       </div>
       <div>
         <label className="label" htmlFor="studio-facebook">Nama Akun Facebook</label>
-        <input id="studio-facebook" name="facebook" defaultValue={store.profile.facebook ?? 'Desyana'} className="field" placeholder="Desyana" />
+        <input id="studio-facebook" name="facebook" defaultValue={store.profile.facebook ?? initialStore.profile.facebook} className="field" placeholder={initialStore.profile.facebook} />
       </div>
       <div>
         <label className="label" htmlFor="studio-facebook-url">Link Profil Facebook</label>
-        <input id="studio-facebook-url" name="facebookUrl" defaultValue={store.profile.facebookUrl ?? 'https://www.facebook.com/desyana'} className="field" placeholder="https://www.facebook.com/..." />
+        <input id="studio-facebook-url" name="facebookUrl" defaultValue={store.profile.facebookUrl ?? initialStore.profile.facebookUrl} className="field" placeholder={initialStore.profile.facebookUrl} />
       </div>
       <div>
         <label className="label" htmlFor="studio-instagram">Akun Instagram</label>
