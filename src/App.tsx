@@ -1668,6 +1668,26 @@ function formatMonthYear(ym: string) {
 
 type ScheduleSort = 'date-asc' | 'date-desc' | 'name-asc' | 'name-desc'
 
+function PanelHeading({ title, description, onAdd, addLabel }: { title: string; description: string; onAdd?: () => void; addLabel?: string }) {
+  return (
+    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="shrink-0">
+        <h2 className="text-lg font-bold text-slate-900">{title}</h2>
+        <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">{description}</p>
+      </div>
+      {onAdd && addLabel && (
+        <button
+          type="button"
+          onClick={onAdd}
+          className="btn-primary !px-4 !py-2 text-xs sm:!py-2.5 sm:text-sm shrink-0 whitespace-nowrap"
+        >
+          <Plus size={16} />{addLabel}
+        </button>
+      )}
+    </div>
+  )
+}
+
 function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void; onDelete: (collection: 'packages' | 'schedules' | 'gallery', id: string) => void }) {
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null)
   const [search, setSearch] = useState('')
@@ -1709,33 +1729,35 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter((s) =>
-        s.clientName.toLowerCase().includes(q) ||
-        s.packageName.toLowerCase().includes(q) ||
-        s.location.toLowerCase().includes(q) ||
-        s.notes.toLowerCase().includes(q) ||
-        s.status.toLowerCase().includes(q) ||
+        (s.clientName && s.clientName.toLowerCase().includes(q)) ||
+        (s.packageName && s.packageName.toLowerCase().includes(q)) ||
+        (s.location && s.location.toLowerCase().includes(q)) ||
+        (s.notes && s.notes.toLowerCase().includes(q)) ||
+        (s.status && s.status.toLowerCase().includes(q)) ||
         (s.whatsapp && s.whatsapp.includes(q))
       )
     }
     return [...list].sort((a, b) => {
+      const nameA = a.clientName || ''
+      const nameB = b.clientName || ''
       if (sortBy === 'date-asc') {
         const timeA = `${a.eventDate || '9999-99-99'}T${a.eventTime || '00:00'}`
         const timeB = `${b.eventDate || '9999-99-99'}T${b.eventTime || '00:00'}`
         const cmp = timeA.localeCompare(timeB)
-        return cmp !== 0 ? cmp : a.clientName.localeCompare(b.clientName, 'id', { sensitivity: 'base' })
+        return cmp !== 0 ? cmp : nameA.localeCompare(nameB, 'id', { sensitivity: 'base' })
       }
       if (sortBy === 'date-desc') {
         const timeA = `${a.eventDate || ''}T${a.eventTime || '00:00'}`
         const timeB = `${b.eventDate || ''}T${b.eventTime || '00:00'}`
         const cmp = timeB.localeCompare(timeA)
-        return cmp !== 0 ? cmp : a.clientName.localeCompare(b.clientName, 'id', { sensitivity: 'base' })
+        return cmp !== 0 ? cmp : nameA.localeCompare(nameB, 'id', { sensitivity: 'base' })
       }
       if (sortBy === 'name-asc') {
-        const cmp = a.clientName.localeCompare(b.clientName, 'id', { sensitivity: 'base' })
+        const cmp = nameA.localeCompare(nameB, 'id', { sensitivity: 'base' })
         return cmp !== 0 ? cmp : `${a.eventDate || ''}T${a.eventTime || '00:00'}`.localeCompare(`${b.eventDate || ''}T${b.eventTime || '00:00'}`)
       }
       if (sortBy === 'name-desc') {
-        const cmp = b.clientName.localeCompare(a.clientName, 'id', { sensitivity: 'base' })
+        const cmp = nameB.localeCompare(nameA, 'id', { sensitivity: 'base' })
         return cmp !== 0 ? cmp : `${a.eventDate || ''}T${a.eventTime || '00:00'}`.localeCompare(`${b.eventDate || ''}T${b.eventTime || '00:00'}`)
       }
       return 0
