@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
-  ArrowDownAZ, ArrowRight, ArrowUpDown, ArrowUpZA, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3,
+  ArrowDownAZ, ArrowRight, ArrowUpDown, ArrowUpZA, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Clock3,
   Edit3, Facebook, Heart, Image, Instagram, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle,
   Music2, PackageCheck, Plus, Search, Sparkles, Trash2, User, X,
 } from 'lucide-react'
@@ -18,6 +18,12 @@ const legacyProfile = {
   phone: '6281234567890',
   openingHours: 'Senin–Sabtu, 09.00–18.00 WIB',
 }
+const legacyFacebookUrls = [
+  'https://www.facebook.com/desyana',
+  'https://facebook.com/desyana',
+  'https://www.facebook.com/desyana/',
+  'https://facebook.com/desyana/',
+]
 const scheduleStatuses = ['Menunggu Konfirmasi', 'Terkonfirmasi', 'Menunggu DP', 'Lunas'] as const
 const eventTypes = ['Akad Nikah', 'Resepsi Adat', 'Wisuda & Pesta'] as const
 const publicRoutes = ['/', '/paket'] as const
@@ -41,7 +47,9 @@ function readStore(): SalonStore {
       }
       if (parsed.profile?.openingHours === legacyProfile.openingHours) profile.openingHours = initialStore.profile.openingHours
       if (!profile.facebook) profile.facebook = initialStore.profile.facebook
-      if (!profile.facebookUrl) profile.facebookUrl = initialStore.profile.facebookUrl
+      if (!profile.facebookUrl || legacyFacebookUrls.includes(profile.facebookUrl)) {
+        profile.facebookUrl = initialStore.profile.facebookUrl
+      }
       if (!profile.instagram) profile.instagram = initialStore.profile.instagram
       if (!profile.instagramUrl) profile.instagramUrl = initialStore.profile.instagramUrl
       if (!profile.tiktok) profile.tiktok = initialStore.profile.tiktok
@@ -372,8 +380,8 @@ function App() {
     const phone = String(form.get('phone') ?? '').replace(/\D/g, '')
     const username = String(form.get('username') ?? '').trim()
     const password = String(form.get('password') ?? '')
-    const facebook = String(form.get('facebook') ?? '').trim() || 'Desyana'
-    const facebookUrl = String(form.get('facebookUrl') ?? '').trim() || 'https://www.facebook.com/desyana'
+    const facebook = String(form.get('facebook') ?? '').trim() || initialStore.profile.facebook
+    const facebookUrl = String(form.get('facebookUrl') ?? '').trim() || initialStore.profile.facebookUrl
     const instagram = String(form.get('instagram') ?? '').trim() || '@desyana_77'
     const instagramUrl = String(form.get('instagramUrl') ?? '').trim() || 'https://www.instagram.com/desyana_77/'
     const tiktok = String(form.get('tiktok') ?? '').trim() || '@desyana.s'
@@ -836,12 +844,12 @@ function PublicFooter({ store, onNavigate }: { store: SalonStore; onNavigate: (r
         <h3 className="mb-4 text-sm font-bold text-slate-900">Media Sosial</h3>
         <div className="grid gap-3">
           <a
-            href={store.profile.facebookUrl || 'https://www.facebook.com/desyana'}
+            href={store.profile.facebookUrl || initialStore.profile.facebookUrl}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 transition hover:text-rose-600"
           >
-            <Facebook size={18} className="shrink-0 text-rose-500" /> {store.profile.facebook || 'Desyana'}
+            <Facebook size={18} className="shrink-0 text-rose-500" /> {store.profile.facebook || initialStore.profile.facebook}
           </a>
           <a
             href={store.profile.instagramUrl || 'https://www.instagram.com/desyana_77/'}
@@ -1174,9 +1182,6 @@ function StatCard({ title, count, detail, icon: Icon, color }: { title: string; 
   return <article className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:rounded-2xl sm:p-6"><div className="min-w-0"><p className="text-xs font-semibold leading-4 text-slate-500">{title}</p><p className="mt-1 text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">{count}</p><p className="mt-1 text-xs text-slate-400">{detail}</p></div><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12 sm:rounded-2xl ${styles[color]}`}><Icon size={22} /></span></article>
 }
 
-function PanelHeading({ title, description, onAdd, addLabel = 'Tambah data' }: { title: string; description: string; onAdd?: () => void; addLabel?: string }) {
-  return <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-lg font-bold text-slate-900">{title}</h2><p className="mt-1 text-xs text-slate-500 sm:text-sm">{description}</p></div>{onAdd && <button onClick={onAdd} className="btn-primary !px-4 !py-2.5"><Plus size={16} />{addLabel}</button>}</div>
-}
 
 function EmptyState({ label }: { label: string }) { return <div className="rounded-xl border border-dashed border-slate-200 py-12 text-center text-sm text-slate-500">{label}</div> }
 function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) { return <div className="flex items-center justify-end gap-2"><button type="button" aria-label="Edit" title="Edit" onClick={onEdit} className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"><Edit3 size={17} /></button><button type="button" aria-label="Hapus" title="Hapus" onClick={onDelete} className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"><Trash2 size={17} /></button></div> }
@@ -1390,34 +1395,39 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
   const paginated = filteredAndSorted.slice((validPage - 1) * 6, validPage * 6)
 
   return <>
-    <PanelHeading title="Kelola Paket" description="Atur layanan, harga, dan informasi katalog publik." onAdd={() => onOpen('package')} addLabel="Tambah paket" />
-
-    {/* Toolbar: Search, Filter Kategori, dan Sorting */}
-    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="relative flex-1 sm:max-w-xs">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-          placeholder="Cari paket atau layanan..."
-          className="field !py-2 !pl-9 !text-xs sm:!text-sm"
-        />
-        {search && (
-          <button
-            type="button"
-            onClick={() => { setSearch(''); setCurrentPage(1); }}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-          >
-            <X size={14} />
-          </button>
-        )}
+    {/* Header & Toolbar: Searching, Filter Kategori, Sortir di sebelah kiri tombol Tambah Paket (Semua 1 baris) */}
+    <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="shrink-0">
+        <h2 className="text-lg font-bold text-slate-900">Kelola Paket</h2>
+        <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">Atur layanan, harga, dan informasi katalog publik.</p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap">
+        {/* Searching */}
+        <div className="relative w-full sm:w-56 lg:w-64">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+            placeholder="Cari paket atau layanan..."
+            className="field !py-2 !pl-9 !pr-7 !text-xs sm:!text-sm"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => { setSearch(''); setCurrentPage(1); }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        {/* Filter Kategori */}
         <select
           value={selectedCategory}
           onChange={(e) => { setSelectedCategory(e.target.value); setCurrentPage(1); }}
-          className="field !w-auto !py-2 !text-xs sm:!text-sm"
+          className="field !w-auto !py-2 !text-xs sm:!text-sm shrink-0"
         >
           <option value="Semua">Semua Kategori</option>
           {store.categories.map((c) => (
@@ -1425,14 +1435,12 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
           ))}
         </select>
 
+        {/* Tombol Tambah Paket */}
         <button
-          type="button"
-          onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
-          className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
-          title={`Urutkan nama paket: ${sortOrder === 'asc' ? 'A ke Z' : 'Z ke A'}`}
+          onClick={() => onOpen('package')}
+          className="btn-primary !px-4 !py-2 text-xs sm:!py-2.5 sm:text-sm shrink-0 whitespace-nowrap"
         >
-          {sortOrder === 'asc' ? <ArrowDownAZ size={16} className="text-rose-600" /> : <ArrowUpZA size={16} className="text-rose-600" />}
-          <span>{sortOrder === 'asc' ? 'Nama A-Z' : 'Nama Z-A'}</span>
+          <Plus size={16} />Tambah paket
         </button>
       </div>
     </div>
@@ -1458,8 +1466,8 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
                 title="Klik untuk mengubah urutan"
               >
                 <div className="flex items-center gap-1.5">
-                  <span>Paket</span>
-                  {sortOrder === 'asc' ? <ArrowDownAZ size={14} className="text-rose-500" /> : <ArrowUpZA size={14} className="text-rose-500" />}
+                  <span>PAKET</span>
+                  <ChevronsUpDown size={14} className={sortOrder === 'asc' ? 'text-rose-600' : 'text-slate-400'} />
                 </div>
               </th>
               <th className="px-4 py-3 font-semibold">Kategori</th>
@@ -1537,70 +1545,94 @@ function CategoriesManager({ store, onOpen, onRemove }: {
   const paginated = filteredAndSorted.slice((validPage - 1) * 6, validPage * 6)
 
   return <>
-    <PanelHeading
-      title="Kelola Kategori"
-      description="Atur jenis kategori bisnis"
-      onAdd={() => onOpen('category')}
-      addLabel="Tambah kategori"
-    />
-
-    {/* Toolbar: Search dan Sorting */}
-    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="relative flex-1 sm:max-w-xs">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-          placeholder="Cari kategori..."
-          className="field !py-2 !pl-9 !text-xs sm:!text-sm"
-        />
-        {search && (
-          <button
-            type="button"
-            onClick={() => { setSearch(''); setCurrentPage(1); }}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-          >
-            <X size={14} />
-          </button>
-        )}
+    {/* Header & Toolbar: Searching di sebelah kiri tombol Tambah Kategori (Semua 1 baris) */}
+    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="shrink-0">
+        <h2 className="text-lg font-bold text-slate-900">Kelola Kategori</h2>
+        <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">Atur jenis kategori bisnis</p>
       </div>
 
-      <button
-        type="button"
-        onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
-        className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
-        title={`Urutkan kategori: ${sortOrder === 'asc' ? 'A ke Z' : 'Z ke A'}`}
-      >
-        {sortOrder === 'asc' ? <ArrowDownAZ size={16} className="text-rose-600" /> : <ArrowUpZA size={16} className="text-rose-600" />}
-        <span>{sortOrder === 'asc' ? 'Nama A-Z' : 'Nama Z-A'}</span>
-      </button>
+      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+        {/* Searching */}
+        <div className="relative w-full sm:w-64">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+            placeholder="Cari kategori..."
+            className="field !py-2 !pl-9 !pr-7 !text-xs sm:!text-sm"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => { setSearch(''); setCurrentPage(1); }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        {/* Tombol Tambah Kategori */}
+        <button
+          onClick={() => onOpen('category')}
+          className="btn-primary !px-4 !py-2 text-xs sm:!py-2.5 sm:text-sm shrink-0 whitespace-nowrap"
+        >
+          <Plus size={16} />Tambah kategori
+        </button>
+      </div>
     </div>
 
     {paginated.length ? (
       <>
-        <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-xs">
-          {paginated.map((category) => {
-            const packageCount = store.packages.filter((item) => item.category.toLowerCase() === category.name.toLowerCase()).length
-            return (
-              <div key={category.id} className="flex items-center justify-between p-4 transition hover:bg-rose-50/20">
-                <div className="flex items-center gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
-                    <LayoutDashboard size={18} />
-                  </span>
-                  <div>
-                    <p className="text-sm font-bold text-slate-800">{category.name}</p>
-                    <p className="text-xs text-slate-500">/{category.slug} · {packageCount} paket terkait</p>
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+          <table className="w-full text-left">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50/50 text-[11px] uppercase tracking-wider text-slate-500">
+                <th
+                  className="py-3 px-4 font-semibold cursor-pointer select-none hover:text-rose-600"
+                  onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
+                  title="Klik untuk mengubah urutan"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>KATEGORI</span>
+                    <ChevronsUpDown size={14} className={sortOrder === 'asc' ? 'text-rose-600' : 'text-slate-400'} />
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <RowActions
-                    onEdit={() => onOpen('category', category)}
-                    onDelete={() => onRemove(category)}
-                  />
-                </div>
-              </div>
-            )
-          })}
+                </th>
+                <th className="hidden sm:table-cell py-3 px-4 font-semibold">PAKET TERKAIT</th>
+                <th className="py-3 px-4 text-right font-semibold">AKSI</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {paginated.map((category) => {
+                const packageCount = store.packages.filter((item) => item.category.toLowerCase() === category.name.toLowerCase()).length
+                return (
+                  <tr key={category.id} className="transition hover:bg-rose-50/20">
+                    <td className="py-3 px-4">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
+                          <LayoutDashboard size={17} />
+                        </span>
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">{category.name}</p>
+                          <p className="text-xs text-slate-400 sm:hidden">{packageCount} paket terkait</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="hidden sm:table-cell py-3 px-4 text-xs font-medium text-slate-600">
+                      <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-slate-700 font-semibold">{packageCount} paket</span>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <RowActions
+                        onEdit={() => onOpen('category', category)}
+                        onDelete={() => onRemove(category)}
+                      />
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
         <AdminPagination
           currentPage={validPage}
@@ -1780,8 +1812,9 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
           <option value="name-desc">Nama Pelanggan (Z–A)</option>
         </select>
         <ChevronDown size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
-      </div>
+
     </div>
+  </div>
 
     {paginated.length ? <>
       <div className="grid gap-3 md:hidden">
@@ -1936,41 +1969,57 @@ function GalleryManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen
   const paginated = filteredAndSorted.slice((validPage - 1) * 6, validPage * 6)
 
   return <>
-    <PanelHeading title="Kelola Foto Portfolio" description="Foto ini tampil sebagai slider di dalam katalog publik." onAdd={() => onOpen('gallery')} addLabel="Tambah foto" />
-
-    {/* Toolbar: Search dan Sorting */}
-    <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="relative flex-1 sm:max-w-xs">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-        <input
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-          placeholder="Cari foto, momen, tag..."
-          className="field !py-2 !pl-9 !text-xs sm:!text-sm"
-        />
-        {search && (
-          <button
-            type="button"
-            onClick={() => { setSearch(''); setCurrentPage(1); }}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-          >
-            <X size={14} />
-          </button>
-        )}
+    {/* Header & Toolbar: Searching di sebelah kiri tombol Tambah Foto (Semua 1 baris) */}
+    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="shrink-0">
+        <h2 className="text-lg font-bold text-slate-900">Kelola Foto Portfolio</h2>
+        <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">Foto ini tampil sebagai slider di dalam katalog publik.</p>
       </div>
 
-      <button
-        type="button"
-        onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
-        className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
-        title={`Urutkan judul karya: ${sortOrder === 'asc' ? 'A ke Z' : 'Z ke A'}`}
-      >
-        {sortOrder === 'asc' ? <ArrowDownAZ size={16} className="text-rose-600" /> : <ArrowUpZA size={16} className="text-rose-600" />}
-        <span>{sortOrder === 'asc' ? 'Judul A-Z' : 'Judul Z-A'}</span>
-      </button>
+      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+        {/* Searching */}
+        <div className="relative w-full sm:w-64">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+            placeholder="Cari foto, momen, tag..."
+            className="field !py-2 !pl-9 !pr-7 !text-xs sm:!text-sm"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => { setSearch(''); setCurrentPage(1); }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        {/* Tombol Tambah Foto */}
+        <button
+          onClick={() => onOpen('gallery')}
+          className="btn-primary !px-4 !py-2 text-xs sm:!py-2.5 sm:text-sm shrink-0 whitespace-nowrap"
+        >
+          <Plus size={16} />Tambah foto
+        </button>
+      </div>
     </div>
 
     {paginated.length ? <>
+      <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+        <button
+          type="button"
+          onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
+          className="flex items-center gap-1.5 cursor-pointer select-none hover:text-rose-600"
+          title="Klik untuk mengubah urutan"
+        >
+          <span>PORTFOLIO</span>
+          <ChevronsUpDown size={14} className={sortOrder === 'asc' ? 'text-rose-600' : 'text-slate-400'} />
+        </button>
+        <span className="text-xs text-slate-400 font-normal">Total {totalItems} karya</span>
+      </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {paginated.map((item) => (
           <article key={item.id} className="overflow-hidden rounded-xl border border-slate-200">
@@ -2033,11 +2082,11 @@ function SettingsManager({ store, onSave, onLogout }: { store: SalonStore; onSav
       </div>
       <div>
         <label className="label" htmlFor="studio-facebook">Nama Akun Facebook</label>
-        <input id="studio-facebook" name="facebook" defaultValue={store.profile.facebook ?? 'Desyana'} className="field" placeholder="Desyana" />
+        <input id="studio-facebook" name="facebook" defaultValue={store.profile.facebook ?? initialStore.profile.facebook} className="field" placeholder={initialStore.profile.facebook} />
       </div>
       <div>
         <label className="label" htmlFor="studio-facebook-url">Link Profil Facebook</label>
-        <input id="studio-facebook-url" name="facebookUrl" defaultValue={store.profile.facebookUrl ?? 'https://www.facebook.com/desyana'} className="field" placeholder="https://www.facebook.com/..." />
+        <input id="studio-facebook-url" name="facebookUrl" defaultValue={store.profile.facebookUrl ?? initialStore.profile.facebookUrl} className="field" placeholder={initialStore.profile.facebookUrl} />
       </div>
       <div>
         <label className="label" htmlFor="studio-instagram">Akun Instagram</label>
