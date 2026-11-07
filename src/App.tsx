@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
-  ArrowRight, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Clock3,
-  Edit3, Facebook, Heart, Image, Instagram, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle,
-  Music2, PackageCheck, Plus, Search, Sparkles, Trash2, User, X,
+  ArrowRight, Award, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Clock3,
+  Edit3, Facebook, Filter, Heart, HelpCircle, Image, Instagram, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle,
+  Music2, PackageCheck, Plus, Search, Sparkles, Trash2, TrendingUp, User, X,
 } from 'lucide-react'
 import brandLogo from './assets/logo-desyana-v2.png'
 import { initialStore } from './data'
-import type { Category, GalleryItem, Package, SalonStore, Schedule } from './types'
+import type { Category, Certificate, FaqItem, GalleryItem, Package, SalonStore, Schedule } from './types'
 
 const STORE_KEY = 'desy-salon-store-v1'
 const legacyAddresses = [
@@ -25,10 +25,14 @@ const legacyFacebookUrls = [
 ]
 const scheduleStatuses = ['Menunggu Konfirmasi', 'Terkonfirmasi', 'Menunggu DP', 'Lunas'] as const
 const eventTypes = ['Akad Nikah', 'Resepsi Adat', 'Wisuda & Pesta'] as const
-const publicRoutes = ['/', '/paket'] as const
+const MONTH_NAMES = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+] as const
+const publicRoutes = ['/', '/paket', '/sertifikat'] as const
 type PublicRoute = typeof publicRoutes[number]
-type EditorKind = 'package' | 'schedule' | 'gallery' | 'category'
-type AdminTab = 'Katalog' | 'Kategori' | 'Jadwal' | 'Portfolio' | 'Akun'
+type EditorKind = 'package' | 'schedule' | 'gallery' | 'category' | 'certificate' | 'faq'
+type AdminTab = 'Katalog' | 'Kategori' | 'Jadwal' | 'Portfolio' | 'Sertifikat' | 'FAQ' | 'Akun'
 
 function readStore(): SalonStore {
   try {
@@ -53,16 +57,37 @@ function readStore(): SalonStore {
       if (!profile.instagramUrl) profile.instagramUrl = initialStore.profile.instagramUrl
       if (!profile.tiktok) profile.tiktok = initialStore.profile.tiktok
       if (!profile.tiktokUrl) profile.tiktokUrl = initialStore.profile.tiktokUrl
+      if (!profile.mapsUrl || profile.mapsUrl === 'https://share.google/25K2BGNsWXDmZ9Q69') {
+        profile.mapsUrl = initialStore.profile.mapsUrl || 'https://maps.app.goo.gl/1mqYn88NWe9zq8AV9'
+      }
 
       const credentials = { ...initialStore.credentials, ...parsed.credentials }
       if ((parsed.credentials?.username === 'desy' && parsed.credentials.password === 'desy') || (parsed.credentials?.username === 'admin' && parsed.credentials.password === 'admin123')) {
         Object.assign(credentials, initialStore.credentials)
       }
+      const packages: Package[] = (parsed.packages ?? initialStore.packages).map((pkg) => {
+        const init = initialStore.packages.find((p) => p.id === pkg.id)
+        return {
+          ...pkg,
+          priceMax: pkg.priceMax ?? init?.priceMax,
+        }
+      })
       const schedules: Schedule[] = parsed.schedules?.map((schedule) => ({
         ...schedule,
         status: schedule.status === 'Selesai' ? 'Lunas' : schedule.status,
-      })) ?? initialStore.schedules
-      return { ...initialStore, ...parsed, profile, credentials, schedules }
+      })) ?? [...initialStore.schedules]
+      initialStore.schedules.forEach((initS) => {
+        if (!schedules.some((s) => s.id === initS.id)) {
+          schedules.push(initS)
+        }
+      })
+      const certificates: Certificate[] = (parsed.certificates && parsed.certificates.length > 0)
+        ? parsed.certificates
+        : [...initialStore.certificates]
+      const faqs: FaqItem[] = (parsed.faqs && parsed.faqs.length >= initialStore.faqs.length)
+        ? parsed.faqs
+        : [...initialStore.faqs]
+      return { ...initialStore, ...parsed, packages, certificates, faqs, profile, credentials, schedules }
     }
   } catch (error) {
     console.warn('Data salon lokal tidak dapat dibaca.', error)
@@ -81,6 +106,13 @@ function rupiah(value: number) {
 function formatDate(value: string) {
   if (!value) return '-'
   return new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(`${value}T00:00:00`))
+}
+
+function getBookingPrice(schedule: Schedule, packages: Package[]): number {
+  const name = (schedule.packageName || '').trim().toLowerCase()
+  const pkg = packages.find((p) => p.name.trim().toLowerCase() === name) ||
+              packages.find((p) => name.includes(p.name.trim().toLowerCase()) || p.name.trim().toLowerCase().includes(name))
+  return pkg ? pkg.price : 0
 }
 
 function whatsappLink(phone: string) {
@@ -154,7 +186,8 @@ function App() {
   const [search, setSearch] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
   const [bookingPackage, setBookingPackage] = useState<Package | null>(null)
-  const [editor, setEditor] = useState<{ kind: EditorKind; item?: Package | Schedule | GalleryItem | Category } | null>(null)
+  const [editor, setEditor] = useState<{ kind: EditorKind; item?: Package | Schedule | GalleryItem | Category | Certificate | FaqItem } | null>(null)
+  const [viewingCert, setViewingCert] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmation, setConfirmation] = useState<{ message: string; onConfirm: () => void } | null>(null)
@@ -203,11 +236,11 @@ function App() {
     return visiblePackages.slice(start, start + ITEMS_PER_PAGE)
   }, [visiblePackages, currentPage])
 
-  function openEditor(kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) {
+  function openEditor(kind: EditorKind, item?: Package | Schedule | GalleryItem | Category | Certificate | FaqItem) {
     setEditor({ kind, item })
   }
 
-  function saveEntity(event: FormEvent<HTMLFormElement>, kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) {
+  function saveEntity(event: FormEvent<HTMLFormElement>, kind: EditorKind, item?: Package | Schedule | GalleryItem | Category | Certificate | FaqItem) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     const value = (name: string) => String(form.get(name) ?? '').trim()
@@ -217,9 +250,11 @@ function App() {
     if (kind === 'package') {
       const name = value('name')
       const price = Number(value('price'))
+      const priceMaxVal = value('priceMax')
+      const priceMax = priceMaxVal ? Number(priceMaxVal) : undefined
       if (!name || !price || !value('image')) return setNotice('Nama, harga, dan foto wajib diisi.')
       const entity: Package = {
-        id, name, category: value('category'), price,
+        id, name, category: value('category'), price, priceMax,
         originalPrice: value('originalPrice') ? Number(value('originalPrice')) : undefined,
         badge: value('badge') || undefined, image: value('image'), description: value('description'),
         features: value('features').split('\n').map((feature) => feature.trim()).filter(Boolean),
@@ -251,6 +286,36 @@ function App() {
       }
       setStore((current) => ({ ...current, gallery: item ? current.gallery.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.gallery] }))
     }
+    if (kind === 'certificate') {
+      const image = value('image') || value('imageUrl')
+      if (!image) return setNotice('Foto sertifikat wajib diisi.')
+      const entity: Certificate = {
+        id,
+        imageUrl: image,
+        title: value('title') || undefined,
+      }
+      setStore((current) => ({
+        ...current,
+        certificates: item
+          ? current.certificates.map((entry) => (entry.id === id ? entity : entry))
+          : [entity, ...current.certificates],
+      }))
+      setNotice(item ? 'Sertifikat berhasil diperbarui.' : 'Sertifikat baru berhasil ditambahkan.')
+    }
+    if (kind === 'faq') {
+      const question = value('question')
+      const answer = value('answer')
+      const category = value('category') || 'Tata Rias'
+      if (!question || !answer) return setNotice('Pertanyaan dan jawaban wajib diisi.')
+      const entity: FaqItem = { id, question, answer, category }
+      setStore((current) => ({
+        ...current,
+        faqs: item
+          ? current.faqs.map((entry) => (entry.id === id ? entity : entry))
+          : [entity, ...current.faqs],
+      }))
+      setNotice(item ? 'FAQ berhasil diperbarui.' : 'FAQ baru berhasil ditambahkan.')
+    }
     if (kind === 'category') {
       const name = value('categoryName')
       if (!name) return setNotice('Nama kategori wajib diisi.')
@@ -267,18 +332,18 @@ function App() {
 
     setEditor(null)
     if (scheduleCollision) setNotice(`Jadwal disimpan, tetapi bentrok dengan ${scheduleCollision.clientName} (${scheduleCollision.session}).`)
-    else if (kind !== 'category') setNotice(item ? 'Perubahan berhasil disimpan.' : 'Data baru berhasil ditambahkan.')
+    else if (kind !== 'category' && kind !== 'certificate' && kind !== 'faq') setNotice(item ? 'Perubahan berhasil disimpan.' : 'Data baru berhasil ditambahkan.')
   }
 
-  function deleteEntity(collection: 'packages' | 'schedules' | 'gallery', id: string) {
-    const item = store[collection].find((entry) => entry.id === id)
+  function deleteEntity(collection: 'packages' | 'schedules' | 'gallery' | 'certificates' | 'faqs', id: string) {
+    const item = (store[collection] as any[]).find((entry) => entry.id === id)
     if (!item) return
-    const labels = { packages: 'paket', schedules: 'jadwal', gallery: 'portofolio' }
-    const name = 'name' in item ? item.name : 'clientName' in item ? item.clientName : item.title
+    const labels = { packages: 'paket', schedules: 'jadwal', gallery: 'portofolio', certificates: 'sertifikat', faqs: 'FAQ' }
+    const name = 'name' in item ? item.name : 'clientName' in item ? item.clientName : 'question' in item ? item.question : 'title' in item && item.title ? item.title : 'Sertifikat'
     setConfirmation({
       message: `Yakin ingin menghapus ${labels[collection]} "${name}"?`,
       onConfirm: () => {
-        setStore((current) => ({ ...current, [collection]: current[collection].filter((entry) => entry.id !== id) }))
+        setStore((current) => ({ ...current, [collection]: (current[collection] as any[]).filter((entry) => entry.id !== id) }))
         setNotice('Data berhasil dihapus.')
       },
     })
@@ -296,6 +361,7 @@ function App() {
     const instagramUrl = String(form.get('instagramUrl') ?? '').trim() || 'https://www.instagram.com/desyana_77/'
     const tiktok = String(form.get('tiktok') ?? '').trim() || '@desyana.s'
     const tiktokUrl = String(form.get('tiktokUrl') ?? '').trim() || 'https://www.tiktok.com/@desyana.s'
+    const mapsUrl = String(form.get('mapsUrl') ?? '').trim() || initialStore.profile.mapsUrl || 'https://maps.app.goo.gl/1mqYn88NWe9zq8AV9'
 
     if (!/^62\d{8,13}$/.test(phone)) return setNotice('Nomor WhatsApp harus berformat 62, contoh 628123456789.')
     if (!username || password.length < 6) return setNotice('Username wajib diisi dan password minimal 6 karakter.')
@@ -305,6 +371,7 @@ function App() {
         ...current.profile,
         phone,
         address: String(form.get('address') ?? '').trim(),
+        mapsUrl,
         openingHours: String(form.get('openingHours') ?? '').trim(),
         facebook,
         facebookUrl,
@@ -354,9 +421,16 @@ function App() {
     }
     setStore((current) => ({ ...current, schedules: [booking, ...current.schedules] }))
     const message = [
-      `Halo ${store.profile.name}, saya ingin melanjutkan konfirmasi booking.`, '',
-      `Nama: ${clientName}`, `Nomor WhatsApp: +${phone}`, `Paket: ${bookingPackage.name}`,
-      `Tanggal: ${formatDate(date)}`, `Waktu: ${time} WIB`, '', 'Mohon konfirmasi ketersediaan jadwal ini. Terima kasih.',
+      `Halo Admin ${store.profile.name}, saya ingin melakukan reservasi dan konfirmasi jadwal layanan.`,
+      ``,
+      `Detail Reservasi:`,
+      `- Nama Lengkap: ${clientName}`,
+      `- Nomor WhatsApp: +${phone}`,
+      `- Paket / Layanan: ${bookingPackage.name}`,
+      `- Tanggal: ${formatDate(date)}`,
+      `- Waktu: ${time} WIB`,
+      ``,
+      `Apakah jadwal pada tanggal dan waktu tersebut tersedia? Mohon informasi ketersediaan dan proses selanjutnya. Terima kasih.`,
     ].join('\n')
     window.open(`${whatsappLink(store.profile.phone)}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
     setBookingPackage(null)
@@ -416,32 +490,46 @@ function App() {
       phone={store.profile.phone}
     />
     <main>
-      {publicRoute === '/' && <section id="beranda" className="hero-wash relative flex min-h-[calc(100vh-80px)] min-h-[calc(100dvh-80px)] items-center overflow-hidden border-b border-rose-100/60 py-16 sm:py-24">
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-rose-50/40" />
-        <div className="relative mx-auto w-full max-w-7xl px-5 sm:px-8 lg:px-12">
-          <div className="max-w-[620px] reveal">
-            <div className="mb-6 inline-flex flex-wrap items-center gap-2 rounded-full border border-rose-200 bg-white/85 px-3.5 py-2 text-xs font-semibold text-rose-700 shadow-sm backdrop-blur">
-              <span className="rounded-full bg-rose-500 px-2.5 py-0.5 text-[11px] font-bold text-white shadow-xs">Sejak 1993</span>
-              <span className="inline-flex items-center gap-1.5"><Sparkles size={14} className="text-amber-500" /> Membingkai hari paling berhargamu dengan riasan mempesona</span>
+      {publicRoute === '/' && (
+        <>
+          <section id="beranda" className="hero-wash relative flex min-h-[calc(100vh-80px)] min-h-[calc(100dvh-80px)] items-center overflow-hidden border-b border-rose-100/60 py-16 sm:py-24">
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-rose-50/40" />
+            <div className="relative mx-auto w-full max-w-7xl px-5 sm:px-8 lg:px-12">
+              <div className="max-w-[620px] reveal">
+                <div className="mb-6 inline-flex flex-wrap items-center gap-2 rounded-full border border-rose-200 bg-white/85 px-3.5 py-2 text-xs font-semibold text-rose-700 shadow-sm backdrop-blur">
+                  <span className="rounded-full bg-rose-500 px-2.5 py-0.5 text-[11px] font-bold text-white shadow-xs">Sejak 1993</span>
+                  <span className="inline-flex items-center gap-1.5"><Sparkles size={14} className="text-amber-500" /> Membingkai hari paling berhargamu dengan riasan mempesona</span>
+                </div>
+                <h1 className="font-display text-5xl font-semibold leading-[1.1] tracking-tight text-slate-900 sm:text-6xl lg:text-[68px]">Hari istimewamu,<br /><span className="italic text-rose-600">secantik ceritamu.</span></h1>
+                <p className="mt-6 max-w-lg text-base leading-7 text-slate-600 sm:text-lg">Dipercaya sejak tahun 1993 menghadirkan tata rias terbaik. Riasan yang terasa seperti dirimu, dibuat dengan cinta untuk momen yang akan selalu kamu kenang.</p>
+                <div className="mt-8 flex flex-wrap items-center gap-3">
+                  <a href="/paket" onClick={(event) => { event.preventDefault(); navigatePublic('/paket') }} className="btn-primary focus-ring">Temukan paket impian <ArrowRight size={17} /></a>
+                  <a href="/paket" onClick={(event) => { event.preventDefault(); navigatePublic('/paket') }} className="btn-secondary bg-white/80 backdrop-blur">Lihat katalog & karya</a>
+                </div>
+              </div>
             </div>
-            <h1 className="font-display text-5xl font-semibold leading-[1.1] tracking-tight text-slate-900 sm:text-6xl lg:text-[68px]">Hari istimewamu,<br /><span className="italic text-rose-600">secantik ceritamu.</span></h1>
-            <p className="mt-6 max-w-lg text-base leading-7 text-slate-600 sm:text-lg">Dipercaya sejak tahun 1993 menghadirkan tata rias terbaik. Riasan yang terasa seperti dirimu, dibuat dengan cinta untuk momen yang akan selalu kamu kenang.</p>
-            <div className="mt-8 flex flex-wrap items-center gap-3">
-              <a href="/paket" onClick={(event) => { event.preventDefault(); navigatePublic('/paket') }} className="btn-primary focus-ring">Temukan paket impian <ArrowRight size={17} /></a>
-              <a href="/paket" onClick={(event) => { event.preventDefault(); navigatePublic('/paket') }} className="btn-secondary bg-white/80 backdrop-blur">Lihat katalog & karya</a>
+            <div className="absolute bottom-8 right-8 hidden rounded-2xl border border-white/70 bg-white/80 p-4 shadow-lg backdrop-blur sm:block lg:right-[9%]">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 text-rose-600"><Heart size={19} fill="currentColor" /></span>
+                <div>
+                  <p className="text-xs font-bold text-rose-600">Dibuat dengan cinta sejak 1993</p>
+                  <p className="text-sm font-semibold text-slate-800">Untuk cerita indahmu</p>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-        <div className="absolute bottom-8 right-8 hidden rounded-2xl border border-white/70 bg-white/80 p-4 shadow-lg backdrop-blur sm:block lg:right-[9%]">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 text-rose-600"><Heart size={19} fill="currentColor" /></span>
-            <div>
-              <p className="text-xs font-bold text-rose-600">Dibuat dengan cinta sejak 1993</p>
-              <p className="text-sm font-semibold text-slate-800">Untuk cerita indahmu</p>
+          </section>
+
+          {/* Section Tanya Jawab / FAQ (Tepat di Atas Portofolio) */}
+          <FaqSection faqs={store.faqs} />
+
+          {/* Galeri Portofolio di Halaman Utama */}
+          <section className="relative overflow-hidden bg-gradient-to-b from-white via-rose-50/20 to-white px-5 py-16 sm:px-8 sm:py-20 lg:px-12">
+            <div className="mx-auto max-w-7xl">
+              <PortfolioCarousel items={store.gallery} showTopBorder={false} />
             </div>
-          </div>
-        </div>
-      </section>}
+          </section>
+        </>
+      )}
 
       {publicRoute === '/paket' && <section id="paket" className="min-h-[70vh] bg-rose-50/40 px-5 py-16 sm:px-8 lg:px-12 lg:py-20">
         <div className="mx-auto max-w-7xl">
@@ -524,13 +612,57 @@ function App() {
           )}
 
           <p className="mt-7 text-center text-xs text-slate-500">Setiap paket dapat disesuaikan. Ceritakan kebutuhanmu saat berkonsultasi.</p>
-          <PortfolioCarousel items={store.gallery} />
         </div>
       </section>}
+
+      {publicRoute === '/sertifikat' && (
+        <section id="sertifikat" className="min-h-[70vh] bg-rose-50/40 px-5 py-16 sm:px-8 lg:px-12 lg:py-20">
+          <div className="mx-auto max-w-7xl">
+            <SectionHeading
+              eyebrow="Pengalaman"
+              title="Sertifikat Resmi Desy Salon"
+              description="Dokumen sertifikasi keahlian tata rias pengantin dan kecantikan resmi sejak tahun 1993."
+            />
+            {store.certificates.length > 0 ? (
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                {store.certificates.map((cert) => (
+                  <article
+                    key={cert.id}
+                    onClick={() => setViewingCert(cert.imageUrl)}
+                    className="group cursor-pointer aspect-[4/3] w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-rose-300 hover:shadow-md"
+                  >
+                    <img
+                      src={cert.imageUrl}
+                      alt={cert.title || 'Sertifikat Desy Salon'}
+                      className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                      loading="lazy"
+                    />
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <EmptyState label="Belum ada sertifikat yang diunggah." />
+            )}
+          </div>
+        </section>
+      )}
 
     </main>
     <PublicFooter store={store} onNavigate={navigatePublic} />
     {bookingPackage && <BookingModal item={bookingPackage} onClose={() => setBookingPackage(null)} onSubmit={submitBooking} />}
+    {viewingCert && (
+      <ModalFrame onClose={() => setViewingCert(null)}>
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <p className="text-xs font-bold uppercase tracking-widest text-rose-500">Sertifikat Resmi Desy Salon</p>
+          <button aria-label="Tutup" onClick={() => setViewingCert(null)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="mt-3 flex items-center justify-center max-h-[75vh] overflow-hidden rounded-xl bg-slate-50 p-1">
+          <img src={viewingCert} alt="Sertifikat" className="max-h-[72vh] w-auto max-w-full rounded-lg object-contain" />
+        </div>
+      </ModalFrame>
+    )}
     {notice && <Toast message={notice} onClose={() => setNotice('')} />}
   </div>
 }
@@ -544,7 +676,9 @@ function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavig
   phone: string
 }) {
   const links: { name: string; href: PublicRoute }[] = [
-    { name: 'Beranda', href: '/' }, { name: 'Katalog', href: '/paket' },
+    { name: 'Beranda', href: '/' },
+    { name: 'Katalog', href: '/paket' },
+    { name: 'Sertifikat', href: '/sertifikat' },
   ]
   return <header className="sticky top-0 z-40 border-b border-rose-100/70 bg-white/85 backdrop-blur-xl">
     <div className="relative mx-auto flex h-20 sm:h-[84px] max-w-7xl items-center justify-between px-5 sm:px-8 lg:px-12">
@@ -616,7 +750,7 @@ function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavig
 }
 
 function PackageCard({ item, onBook }: { item: Package; onBook: () => void }) {
-  const showPrice = item.category.toLowerCase() === 'perawatan'
+  const isPerawatan = item.category.toLowerCase().includes('perawatan')
   return (
     <article className="group flex h-full flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md">
       {/* Gambar Thumbnail Konsisten */}
@@ -659,13 +793,19 @@ function PackageCard({ item, onBook }: { item: Package; onBook: () => void }) {
         {/* Baris Tombol Aksi di Bawah: Selalu Rata dan Presisi */}
         <div className="mt-auto pt-4 border-t border-slate-100/90 flex min-h-[56px] items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
-            {showPrice ? (
+            {isPerawatan ? (
               <div>
                 {item.originalPrice && <p className="text-xs font-medium text-slate-400 line-through">{rupiah(item.originalPrice)}</p>}
-                <p className="text-lg font-bold text-rose-600 truncate">{rupiah(item.price)}<span className="ml-1 text-xs font-medium text-slate-500">/ layanan</span></p>
+                <p className="text-base sm:text-lg font-bold text-rose-600 truncate">{rupiah(item.price)}<span className="ml-1 text-xs font-medium text-slate-500">/ layanan</span></p>
               </div>
             ) : (
-              <span className="text-xs font-semibold text-slate-500">Harga via konsultasi</span>
+              <div>
+                {item.originalPrice && <p className="text-xs font-medium text-slate-400 line-through">{rupiah(item.originalPrice)}</p>}
+                <p className="text-sm sm:text-base font-bold text-rose-600 truncate">
+                  {item.priceMax ? `${rupiah(item.price)} – ${rupiah(item.priceMax)}` : `Mulai ${rupiah(item.price)}`}
+                </p>
+                <span className="text-[11px] font-medium text-slate-400">Harga via konsultasi</span>
+              </div>
             )}
           </div>
           <button
@@ -680,36 +820,294 @@ function PackageCard({ item, onBook }: { item: Package; onBook: () => void }) {
   )
 }
 
-function PortfolioCarousel({ items }: { items: GalleryItem[] }) {
-  const track = useRef<HTMLDivElement>(null)
-  function scroll(direction: -1 | 1) {
-    track.current?.scrollBy({ left: direction * track.current.clientWidth * 0.8, behavior: 'smooth' })
+function FaqSection({ faqs }: { faqs: FaqItem[] }) {
+  const [openIds, setOpenIds] = useState<string[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [activeCategory, setActiveCategory] = useState<string>('Semua')
+
+  const categories = useMemo(() => {
+    const cats = Array.from(new Set(faqs.map((f) => f.category).filter(Boolean)))
+    return ['Semua', ...cats]
+  }, [faqs])
+
+  const filteredFaqs = useMemo(() => {
+    return faqs.filter((item) => {
+      const matchesCategory = activeCategory === 'Semua' || item.category === activeCategory
+      const query = searchQuery.toLowerCase().trim()
+      const matchesSearch = !query ||
+        item.question.toLowerCase().includes(query) ||
+        item.answer.toLowerCase().includes(query)
+      return matchesCategory && matchesSearch
+    })
+  }, [faqs, activeCategory, searchQuery])
+
+  function toggleFaq(id: string) {
+    setOpenIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    )
   }
-  return <section className="mt-16 border-t border-rose-100 pt-12">
-    <div className="mb-6 flex items-end justify-between gap-4">
-      <SectionHeading eyebrow="Portofolio rias" title="Inspirasi dari karya kami" description="Geser untuk melihat berbagai hasil riasan Desy Salon." align="left" />
-      <div className="mb-9 hidden gap-2 sm:flex">
-        <button aria-label="Foto sebelumnya" onClick={() => scroll(-1)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"><ChevronLeft size={19} /></button>
-        <button aria-label="Foto berikutnya" onClick={() => scroll(1)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"><ChevronRight size={19} /></button>
-      </div>
-    </div>
-    {items.length ? <div ref={track} className="flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth pb-4">
-      {items.map((item) => <article key={item.id} className="group relative h-72 w-[82%] shrink-0 snap-start overflow-hidden rounded-2xl bg-slate-200 sm:h-80 sm:w-[48%] lg:w-[32%]">
-        <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover transition duration-700 group-hover:scale-105" loading="lazy" />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-950/5 to-transparent" />
-        <div className="absolute inset-x-0 bottom-0 p-5 text-white">
-          <div className="mb-2 flex gap-2"><span className="rounded-full bg-white/20 px-2.5 py-1 text-[10px] font-semibold backdrop-blur">{item.eventType}</span><span className="rounded-full bg-rose-400/90 px-2.5 py-1 text-[10px] font-semibold">{item.tag}</span></div>
-          <h3 className="font-display text-xl font-semibold">{item.title}</h3>
-          <p className="mt-1 max-w-sm text-xs leading-5 text-white/80">{item.description}</p>
+
+  return (
+    <section id="faq" className="border-t border-rose-100/70 bg-gradient-to-b from-slate-50/80 via-rose-50/20 to-white px-5 py-16 sm:px-8 sm:py-20 lg:px-12">
+      <div className="mx-auto max-w-3xl">
+        <div className="mb-9 text-center">
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-200/70 bg-rose-50/80 px-3.5 py-1 text-xs font-bold uppercase tracking-wider text-rose-600 shadow-2xs">
+            <HelpCircle size={13} />
+            <span>Desy Salon & Tata Rias</span>
+          </div>
+          <h2 className="mt-3 font-display text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+            Frequently Asked Questions
+          </h2>
+          <p className="mx-auto mt-2.5 max-w-lg text-sm text-slate-600">
+            Pertanyaan dan jawaban seputar layanan tata rias pengantin, salon, reservasi, serta ketentuan di Desy Salon.
+          </p>
+
+          <div className="relative mx-auto mt-6 max-w-md">
+            <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search for a question..."
+              className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-10 pr-9 text-xs sm:text-sm text-slate-800 placeholder-slate-400 shadow-xs focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200/50"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Filter Kategori */}
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+            {categories.map((cat) => {
+              const isActive = activeCategory === cat
+              const label = cat === 'Tata Rias' ? 'Seputar Layanan Tata Rias' : cat === 'Layanan Salon' ? 'Tentang Salon' : cat
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setActiveCategory(cat)}
+                  className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${
+                    isActive
+                      ? 'bg-rose-500 text-white shadow-xs'
+                      : 'border border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:text-rose-600'
+                  }`}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
         </div>
-      </article>)}
-    </div> : <EmptyState label="Foto portofolio akan segera ditambahkan." />}
-  </section>
+
+        <div className="space-y-3">
+          {filteredFaqs.length > 0 ? (
+            filteredFaqs.map((faq) => {
+              const isOpen = openIds.includes(faq.id)
+              return (
+                <div
+                  key={faq.id}
+                  className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xs transition-all duration-200 hover:border-slate-300"
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleFaq(faq.id)}
+                    className="flex w-full items-center justify-between gap-4 p-4 text-left font-bold text-slate-800 transition hover:text-rose-600 sm:p-5"
+                    aria-expanded={isOpen}
+                  >
+                    <span className="text-sm sm:text-base leading-snug">{faq.question}</span>
+                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition duration-200 ${
+                      isOpen ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {isOpen ? <X size={15} /> : <Plus size={15} />}
+                    </span>
+                  </button>
+                  {isOpen && (
+                    <div className="border-t border-slate-100 px-4 pb-4 pt-0 text-xs sm:text-sm leading-6 text-slate-600 sm:px-5 sm:pb-5">
+                      <p className="pt-3">{faq.answer}</p>
+                    </div>
+                  )}
+                </div>
+              )
+            })
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-xs text-slate-500">
+              <p className="font-semibold text-slate-700 text-sm">Pertanyaan tidak ditemukan</p>
+              <p className="mt-1">Punya pertanyaan lain? Tim Desy Salon siap membantu Anda via WhatsApp.</p>
+              <div className="mt-4 flex justify-center gap-2">
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => { setSearchQuery(''); setActiveCategory('Semua') }}
+                    className="btn-secondary !text-xs !py-1.5 !px-3"
+                  >
+                    Reset Pencarian
+                  </button>
+                )}
+                <a
+                  href="https://wa.me/6282135221177"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn-primary !text-xs !py-1.5 !px-3"
+                >
+                  <MessageCircle size={14} /> WhatsApp Desy Salon
+                </a>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function PortfolioCarousel({ items, showTopBorder = true }: { items: GalleryItem[]; showTopBorder?: boolean }) {
+  const track = useRef<HTMLDivElement>(null)
+  const [activeIndex, setActiveIndex] = useState(0)
+  const [isPaused, setIsPaused] = useState(false)
+
+  // Auto-scroll berputar otomatis
+  useEffect(() => {
+    if (isPaused || items.length <= 1) return
+    const timer = window.setInterval(() => {
+      setActiveIndex((prev) => (prev + 1) % items.length)
+    }, 3500)
+    return () => window.clearInterval(timer)
+  }, [isPaused, items.length])
+
+  // Geser posisi scroll secara halus mengikuti activeIndex
+  useEffect(() => {
+    if (!track.current || items.length === 0) return
+    const container = track.current
+    const card = container.children[activeIndex] as HTMLElement | undefined
+    if (card) {
+      const targetScroll = card.offsetLeft - container.offsetLeft - (container.clientWidth - card.clientWidth) / 2
+      container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' })
+    }
+  }, [activeIndex, items.length])
+
+  function scroll(direction: -1 | 1) {
+    setActiveIndex((prev) => {
+      if (direction === -1) {
+        return (prev - 1 + items.length) % items.length
+      } else {
+        return (prev + 1) % items.length
+      }
+    })
+  }
+
+  return (
+    <section className={`relative ${showTopBorder ? 'mt-16 border-t border-rose-100 pt-12' : 'pt-2'}`}>
+      <div className="mb-6 flex flex-col items-center text-center">
+        <SectionHeading
+          eyebrow="Portofolio rias"
+          title="Inspirasi dari karya kami"
+          align="center"
+        />
+      </div>
+
+      {items.length ? (
+        <div
+          onMouseEnter={() => setIsPaused(true)}
+          onMouseLeave={() => setIsPaused(false)}
+          onTouchStart={() => setIsPaused(true)}
+          onTouchEnd={() => setIsPaused(false)}
+          className="relative"
+        >
+          <div
+            ref={track}
+            className="flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth pb-4 pt-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {items.map((item, idx) => {
+              const isActive = idx === activeIndex
+              return (
+                <article
+                  key={item.id}
+                  onClick={() => setActiveIndex(idx)}
+                  className={`group relative h-80 w-[82%] shrink-0 snap-center cursor-pointer overflow-hidden rounded-2xl bg-slate-200 transition-all duration-500 sm:h-96 sm:w-[48%] lg:w-[32%] ${
+                    isActive
+                      ? 'ring-2 ring-rose-500/90 shadow-xl scale-[1.01]'
+                      : 'opacity-90 hover:opacity-100 hover:shadow-md'
+                  }`}
+                >
+                  <img
+                    src={item.imageUrl}
+                    alt={item.title}
+                    className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
+                    loading="lazy"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/20 to-transparent" />
+                  <div className="absolute inset-x-0 bottom-0 p-5 text-white">
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      <span className="rounded-full bg-white/25 px-2.5 py-1 text-[10px] font-semibold backdrop-blur-md">
+                        {item.eventType}
+                      </span>
+                      <span className="rounded-full bg-rose-500/90 px-2.5 py-1 text-[10px] font-semibold shadow-xs">
+                        {item.tag}
+                      </span>
+                    </div>
+                    <h3 className="font-display text-xl font-semibold leading-snug">{item.title}</h3>
+                    <p className="mt-1 max-w-sm text-xs leading-5 text-white/80 line-clamp-2">{item.description}</p>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+
+          {/* Navigasi Prev/Next dan Dots Indicator di Bawah Gambar */}
+          <div className="mt-4 flex items-center justify-center gap-3">
+            <button
+              type="button"
+              aria-label="Foto sebelumnya"
+              onClick={() => scroll(-1)}
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-xs transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"
+            >
+              <ChevronLeft size={18} />
+            </button>
+
+            <div className="flex items-center gap-1.5">
+              {items.map((_, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setActiveIndex(idx)}
+                  aria-label={`Lihat karya ke-${idx + 1}`}
+                  className={`h-2 rounded-full transition-all duration-300 ${
+                    idx === activeIndex
+                      ? 'w-7 bg-rose-500 shadow-xs'
+                      : 'w-2 bg-slate-300 hover:bg-rose-300'
+                  }`}
+                />
+              ))}
+            </div>
+
+            <button
+              type="button"
+              aria-label="Foto berikutnya"
+              onClick={() => scroll(1)}
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-xs transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"
+            >
+              <ChevronRight size={18} />
+            </button>
+          </div>
+        </div>
+      ) : (
+        <EmptyState label="Foto portofolio akan segera ditambahkan." />
+      )}
+    </section>
+  )
 }
 
 function PublicFooter({ store, onNavigate }: { store: SalonStore; onNavigate: (route: PublicRoute) => void }) {
   const links: { name: string; href: PublicRoute }[] = [
-    { name: 'Beranda', href: '/' }, { name: 'Katalog rias', href: '/paket' },
+    { name: 'Beranda', href: '/' },
+    { name: 'Katalog rias', href: '/paket' },
+    { name: 'Sertifikat', href: '/sertifikat' },
   ]
   return <footer className="border-t border-slate-200 bg-slate-50 px-5 py-12 sm:px-8 lg:px-12">
     <div className="mx-auto grid max-w-7xl gap-8 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.65fr)_minmax(0,0.95fr)_minmax(0,1.45fr)] lg:gap-7">
@@ -720,7 +1118,16 @@ function PublicFooter({ store, onNavigate }: { store: SalonStore; onNavigate: (r
       </div>
       <div>
         <h3 className="mb-4 text-sm font-bold text-slate-900">Kunjungi studio</h3>
-        <p className="flex gap-2 text-sm leading-6 text-slate-600"><MapPin size={17} className="mt-0.5 shrink-0 text-rose-500" />{store.profile.address}</p>
+        <a
+          href={store.profile.mapsUrl || 'https://maps.app.goo.gl/1mqYn88NWe9zq8AV9'}
+          target="_blank"
+          rel="noreferrer"
+          title="Buka lokasi di Google Maps"
+          className="group flex gap-2 text-sm leading-6 text-slate-600 transition hover:text-rose-600"
+        >
+          <MapPin size={17} className="mt-0.5 shrink-0 text-rose-500 transition-transform group-hover:scale-110" />
+          <span>{store.profile.address}</span>
+        </a>
         <p className="mt-3 flex gap-2 text-sm text-slate-600"><Clock3 size={16} className="shrink-0 text-rose-500" />{store.profile.openingHours}</p>
       </div>
       <div>
@@ -731,38 +1138,57 @@ function PublicFooter({ store, onNavigate }: { store: SalonStore; onNavigate: (r
       </div>
       <div>
         <h3 className="mb-4 text-sm font-bold text-slate-900">Media Sosial</h3>
-        <div className="grid gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
           <a
             href={store.profile.facebookUrl || initialStore.profile.facebookUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 transition hover:text-rose-600"
+            aria-label="Facebook Desyana"
+            title="Facebook Desyana"
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-rose-500 shadow-xs transition-all hover:-translate-y-0.5 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600 hover:shadow-sm"
           >
-            <Facebook size={18} className="shrink-0 text-rose-500" /> {store.profile.facebook || initialStore.profile.facebook}
+            <Facebook size={20} />
           </a>
           <a
             href={store.profile.instagramUrl || 'https://www.instagram.com/desyana_77/'}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 transition hover:text-rose-600"
+            aria-label="Instagram Desyana"
+            title="Instagram @desyana_77"
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-rose-500 shadow-xs transition-all hover:-translate-y-0.5 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600 hover:shadow-sm"
           >
-            <Instagram size={18} className="shrink-0 text-rose-500" /> {store.profile.instagram || '@desyana_77'}
+            <Instagram size={20} />
           </a>
           <a
             href={store.profile.tiktokUrl || 'https://www.tiktok.com/@desyana.s'}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 transition hover:text-rose-600"
+            aria-label="TikTok Desyana"
+            title="TikTok @desyana.s"
+            className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-rose-500 shadow-xs transition-all hover:-translate-y-0.5 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600 hover:shadow-sm"
           >
-            <Music2 size={18} className="shrink-0 text-rose-500" /> {store.profile.tiktok || '@desyana.s'}
+            <Music2 size={20} />
           </a>
         </div>
       </div>
       <div>
         <h3 className="mb-4 text-sm font-bold text-slate-900">Peta studio</h3>
-        <div className="h-[180px] w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm">
-          <iframe title={`Peta lokasi ${store.profile.name}`} src={`https://www.google.com/maps?q=${encodeURIComponent(store.profile.address)}&output=embed`} className="h-full w-full border-0" loading="lazy" referrerPolicy="no-referrer-when-downgrade" allowFullScreen />
-        </div>
+        <a
+          href={store.profile.mapsUrl || 'https://maps.app.goo.gl/1mqYn88NWe9zq8AV9'}
+          target="_blank"
+          rel="noreferrer"
+          title="Buka lokasi di Google Maps"
+          className="group block h-[180px] w-full overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm transition hover:border-rose-300"
+        >
+          <iframe
+            title={`Peta lokasi ${store.profile.name}`}
+            src={`https://www.google.com/maps?q=${encodeURIComponent('Desy Salon Dan Tata Rias Pengantin, Pekuncen, Jatilawang')}&output=embed`}
+            className="pointer-events-none h-full w-full border-0"
+            loading="lazy"
+            referrerPolicy="no-referrer-when-downgrade"
+            allowFullScreen
+          />
+        </a>
       </div>
     </div>
     <div className="mx-auto mt-10 max-w-7xl border-t border-slate-200 pt-5 text-xs text-slate-600">
@@ -787,6 +1213,13 @@ function BookingModal({ item, onClose, onSubmit }: { item: Package; onClose: () 
       <div>
         <p className="text-xs font-semibold text-slate-600">Paket pilihan</p>
         <p className="font-bold text-slate-900">{item.name}</p>
+        <p className="text-xs font-semibold text-rose-600">
+          {item.category.toLowerCase().includes('perawatan')
+            ? `${rupiah(item.price)} / layanan`
+            : item.priceMax
+              ? `${rupiah(item.price)} – ${rupiah(item.priceMax)}`
+              : `Mulai ${rupiah(item.price)}`}
+        </p>
       </div>
     </div>
     <form onSubmit={onSubmit} className="space-y-4">
@@ -812,7 +1245,6 @@ function BookingModal({ item, onClose, onSubmit }: { item: Package; onClose: () 
       <button type="submit" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 shadow-xs">
         <MessageCircle size={17} /> Lanjutkan & konfirmasi via WA
       </button>
-      <p className="text-center text-xs font-medium text-slate-600">Booking tersimpan di dashboard admin dan menunggu konfirmasi.</p>
     </form>
   </ModalFrame>
 }
@@ -844,8 +1276,8 @@ function LoginPage({ store, onOwnerLogin }: { store: SalonStore; onOwnerLogin: (
 
 function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCategoryRemove, onSettingsSave, onLogout }: {
   store: SalonStore; activeTab: AdminTab; setActiveTab: (tab: AdminTab) => void;
-  onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void;
-  onDelete: (collection: 'packages' | 'schedules' | 'gallery', id: string) => void;
+  onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category | Certificate | FaqItem) => void;
+  onDelete: (collection: 'packages' | 'schedules' | 'gallery' | 'certificates' | 'faqs', id: string) => void;
   onCategoryRemove: (category: Category) => void;
   onSettingsSave: (event: FormEvent<HTMLFormElement>) => void; onLogout: () => void;
 }) {
@@ -865,6 +1297,8 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
     { name: 'Kategori', icon: LayoutDashboard },
     { name: 'Jadwal', icon: CalendarDays },
     { name: 'Portfolio', icon: Image },
+    { name: 'Sertifikat', icon: Award },
+    { name: 'FAQ', icon: HelpCircle },
     { name: 'Akun', icon: User },
   ]
 
@@ -999,6 +1433,8 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
           {activeTab === 'Kategori' && <CategoriesManager store={store} onOpen={onOpen} onRemove={onCategoryRemove} />}
           {activeTab === 'Jadwal' && <SchedulesManager store={store} onOpen={onOpen} onDelete={onDelete} />}
           {activeTab === 'Portfolio' && <GalleryManager store={store} onOpen={onOpen} onDelete={onDelete} />}
+          {activeTab === 'Sertifikat' && <CertificatesManager store={store} onOpen={onOpen} onDelete={onDelete} />}
+          {activeTab === 'FAQ' && <FaqManager store={store} onOpen={onOpen} onDelete={onDelete} />}
           {activeTab === 'Akun' && <SettingsManager store={store} onSave={onSettingsSave} onLogout={onLogout} />}
         </section>
       </main>
@@ -1013,7 +1449,12 @@ function StatCard({ title, count, detail, icon: Icon, color }: { title: string; 
 
 
 function EmptyState({ label }: { label: string }) { return <div className="rounded-xl border border-dashed border-slate-200 py-12 text-center text-sm text-slate-500">{label}</div> }
-function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) { return <div className="flex items-center justify-end gap-2"><button type="button" aria-label="Edit" title="Edit" onClick={onEdit} className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"><Edit3 size={17} /></button><button type="button" aria-label="Hapus" title="Hapus" onClick={onDelete} className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"><Trash2 size={17} /></button></div> }
+function RowActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+  return <div className="flex items-center justify-end gap-1.5 sm:gap-2">
+    <button type="button" aria-label="Edit" title="Edit" onClick={onEdit} className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg sm:rounded-xl border border-slate-200 bg-white text-slate-600 shadow-xs transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"><Edit3 size={15} /></button>
+    <button type="button" aria-label="Hapus" title="Hapus" onClick={onDelete} className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-lg sm:rounded-xl border border-slate-200 bg-white text-slate-600 shadow-xs transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"><Trash2 size={15} /></button>
+  </div>
+}
 
 function AdminPagination({
   currentPage,
@@ -1080,30 +1521,38 @@ function SearchableSelect({
   label,
   name,
   options,
+  value,
+  onChange,
   defaultValue = '',
   placeholder = 'Pilih opsi...',
   searchPlaceholder = 'Cari opsi...',
+  className = '',
+  buttonClassName = '',
 }: {
-  label: string
-  name: string
+  label?: string
+  name?: string
   options: readonly string[]
+  value?: string
+  onChange?: (val: string) => void
   defaultValue?: string
   placeholder?: string
   searchPlaceholder?: string
+  className?: string
+  buttonClassName?: string
 }) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [selected, setSelected] = useState(() => defaultValue || (options.length > 0 ? options[0] : ''))
+  const [internalSelected, setInternalSelected] = useState(() => defaultValue || (options.length > 0 ? options[0] : ''))
   const containerRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
 
+  const selected = value !== undefined ? value : internalSelected
+
   useEffect(() => {
-    if (defaultValue) {
-      setSelected(defaultValue)
-    } else if (options.length > 0 && !options.includes(selected)) {
-      setSelected(options[0])
+    if (defaultValue && value === undefined) {
+      setInternalSelected(defaultValue)
     }
-  }, [defaultValue, options])
+  }, [defaultValue, value])
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -1129,18 +1578,29 @@ function SearchableSelect({
     return options.filter((opt) => opt.toLowerCase().includes(q))
   }, [options, searchQuery])
 
+  function handleSelect(option: string) {
+    if (value === undefined) {
+      setInternalSelected(option)
+    }
+    onChange?.(option)
+    setIsOpen(false)
+    setSearchQuery('')
+  }
+
   return (
-    <div className="relative" ref={containerRef}>
-      <label className="label" htmlFor={`searchable-btn-${name}`}>
-        {label}
-      </label>
-      <input type="hidden" name={name} value={selected} />
+    <div className={`relative ${className}`} ref={containerRef}>
+      {label && (
+        <label className="label" htmlFor={name ? `searchable-btn-${name}` : undefined}>
+          {label}
+        </label>
+      )}
+      {name && <input type="hidden" name={name} value={selected} />}
 
       <button
-        id={`searchable-btn-${name}`}
+        id={name ? `searchable-btn-${name}` : undefined}
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className="field flex items-center justify-between text-left focus:outline-none"
+        className={`field flex w-full items-center justify-between text-left focus:outline-none ${buttonClassName}`}
       >
         <span className={`truncate ${selected ? 'font-medium text-slate-800' : 'text-slate-400'}`}>
           {selected || placeholder}
@@ -1149,7 +1609,7 @@ function SearchableSelect({
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-60 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl ring-1 ring-black/5">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 w-full max-h-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl ring-1 ring-black/5">
           <div className="border-b border-slate-100 p-2">
             <div className="relative">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1163,17 +1623,13 @@ function SearchableSelect({
               />
             </div>
           </div>
-          <div className="max-h-40 overflow-y-auto p-1">
+          <div className="max-h-48 overflow-y-auto p-1">
             {filteredOptions.length > 0 ? (
               filteredOptions.map((option) => (
                 <button
                   key={option}
                   type="button"
-                  onClick={() => {
-                    setSelected(option)
-                    setIsOpen(false)
-                    setSearchQuery('')
-                  }}
+                  onClick={() => handleSelect(option)}
                   className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-xs transition ${
                     selected === option
                       ? 'bg-rose-50 font-bold text-rose-700'
@@ -1255,16 +1711,18 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
         </div>
 
         {/* Filter Kategori */}
-        <select
-          value={selectedCategory}
-          onChange={(e) => { setSelectedCategory(e.target.value); setCurrentPage(1); }}
-          className="field !w-auto !py-2 !text-xs sm:!text-sm shrink-0"
-        >
-          <option value="Semua">Semua Kategori</option>
-          {store.categories.map((c) => (
-            <option key={c.id} value={c.name}>{c.name}</option>
-          ))}
-        </select>
+        <SearchableSelect
+          options={['Semua Kategori', ...store.categories.map((c) => c.name)]}
+          value={selectedCategory === 'Semua' ? 'Semua Kategori' : selectedCategory}
+          onChange={(val) => {
+            setSelectedCategory(val === 'Semua Kategori' ? 'Semua' : val)
+            setCurrentPage(1)
+          }}
+          placeholder="Filter Kategori"
+          searchPlaceholder="Cari kategori..."
+          className="w-full sm:w-44 shrink-0"
+          buttonClassName="!py-2 !text-xs sm:!text-sm"
+        />
 
         {/* Tombol Tambah Paket */}
         <button
@@ -1277,15 +1735,42 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
     </div>
 
     {paginated.length ? <>
-      <div className="grid gap-3 lg:hidden">
-        {paginated.map((item) => <article key={item.id} className="min-w-0 rounded-xl border border-slate-200 bg-white p-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <img src={item.image} alt="" className="h-16 w-20 shrink-0 rounded-lg object-cover" />
-            <div className="min-w-0 flex-1"><h3 className="break-words text-sm font-bold text-slate-900">{item.name}</h3><p className="mt-1 text-xs font-semibold text-slate-600">{item.category}</p><p className="mt-1 break-words text-xs text-slate-600">{rupiah(item.price)}</p>{item.badge && <span className="mt-2 inline-flex whitespace-nowrap rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">{item.badge}</span>}</div>
-          </div>
-          <p className="mt-3 break-words text-xs leading-5 text-slate-600">{item.description}</p>
-          <div className="mt-3 border-t border-slate-100 pt-3"><RowActions onEdit={() => onOpen('package', item)} onDelete={() => onDelete('packages', item.id)} /></div>
-        </article>)}
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:hidden">
+        {paginated.map((item) => (
+          <article key={item.id} className="flex flex-col justify-between min-w-0 rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3.5 shadow-xs transition hover:border-rose-200">
+            <div>
+              <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg bg-slate-100">
+                <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
+                {item.badge && (
+                  <span className="absolute top-1.5 left-1.5 rounded-full bg-amber-500/90 px-2 py-0.5 text-[9px] font-bold text-white shadow-xs backdrop-blur-xs">
+                    {item.badge}
+                  </span>
+                )}
+              </div>
+              <div className="mt-2 min-w-0">
+                <span className="inline-block rounded-md bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-600">
+                  {item.category}
+                </span>
+                <h3 className="mt-1 line-clamp-1 text-xs sm:text-sm font-bold text-slate-900" title={item.name}>
+                  {item.name}
+                </h3>
+                <p className="mt-0.5 text-xs font-bold text-slate-700">
+                  {item.category.toLowerCase().includes('perawatan')
+                    ? rupiah(item.price)
+                    : item.priceMax
+                      ? `${rupiah(item.price)} – ${rupiah(item.priceMax)}`
+                      : `Mulai ${rupiah(item.price)}`}
+                </p>
+                <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">
+                  {item.description}
+                </p>
+              </div>
+            </div>
+            <div className="mt-2.5 border-t border-slate-100 pt-2 flex items-center justify-end">
+              <RowActions onEdit={() => onOpen('package', item)} onDelete={() => onDelete('packages', item.id)} />
+            </div>
+          </article>
+        ))}
       </div>
       <div className="hidden overflow-x-auto lg:block">
         <table className="w-full min-w-[800px] text-left">
@@ -1320,7 +1805,13 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
                   </div>
                 </td>
                 <td className="px-4 py-3 text-sm text-slate-700">{item.category}</td>
-                <td className="px-4 py-3 text-sm font-semibold text-slate-800">{rupiah(item.price)}</td>
+                <td className="px-4 py-3 text-sm font-semibold text-slate-800">
+                  {item.category.toLowerCase().includes('perawatan')
+                    ? rupiah(item.price)
+                    : item.priceMax
+                      ? `${rupiah(item.price)} – ${rupiah(item.priceMax)}`
+                      : `Mulai ${rupiah(item.price)}`}
+                </td>
                 <td className="px-4 py-3">{item.badge ? <span className="whitespace-nowrap rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">{item.badge}</span> : <span className="text-xs text-slate-500">-</span>}</td>
                 <td className="py-3 pl-4"><RowActions onEdit={() => onOpen('package', item)} onDelete={() => onDelete('packages', item.id)} /></td>
               </tr>
@@ -1489,12 +1980,39 @@ function CategoriesManager({ store, onOpen, onRemove }: {
 
 function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void; onDelete: (collection: 'packages' | 'schedules' | 'gallery', id: string) => void }) {
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null)
+  const [scheduleView, setScheduleView] = useState<'list' | 'history'>('list')
+  const [selectedMonth, setSelectedMonth] = useState('Semua Bulan')
+  const [selectedYear, setSelectedYear] = useState('Semua Tahun')
+  const [historyMonth, setHistoryMonth] = useState('Semua Bulan')
+  const [historyYear, setHistoryYear] = useState('Semua Tahun')
   const [search, setSearch] = useState('')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const [currentPage, setCurrentPage] = useState(1)
+  const [historyPage, setHistoryPage] = useState(1)
 
+  // Ekstrak daftar tahun yang tersedia dari jadwal
+  const availableYears = useMemo(() => {
+    const years = new Set<string>()
+    store.schedules.forEach((s) => {
+      if (s.eventDate && s.eventDate.length >= 4) {
+        years.add(s.eventDate.slice(0, 4))
+      }
+    })
+    if (years.size === 0) years.add(new Date().getFullYear().toString())
+    return Array.from(years).sort().reverse()
+  }, [store.schedules])
+
+  // Filter daftar jadwal aktif
   const filteredAndSorted = useMemo(() => {
     let list = store.schedules
+    if (selectedMonth !== 'Semua Bulan') {
+      const mIdx = MONTH_NAMES.indexOf(selectedMonth as any) + 1
+      const mStr = mIdx < 10 ? `0${mIdx}` : `${mIdx}`
+      list = list.filter((s) => s.eventDate && s.eventDate.slice(5, 7) === mStr)
+    }
+    if (selectedYear !== 'Semua Tahun') {
+      list = list.filter((s) => s.eventDate && s.eventDate.startsWith(selectedYear))
+    }
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter((s) =>
@@ -1510,7 +2028,7 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
       const cmp = a.clientName.localeCompare(b.clientName, 'id', { sensitivity: 'base' })
       return sortOrder === 'asc' ? cmp : -cmp
     })
-  }, [store.schedules, search, sortOrder])
+  }, [store.schedules, selectedMonth, selectedYear, search, sortOrder])
 
   const totalItems = filteredAndSorted.length
   const totalPages = Math.ceil(totalItems / 6) || 1
@@ -1522,117 +2040,418 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
     onOpen('schedule', schedule)
   }
 
+  // Data history booking disaring berdasarkan 2 filter: Bulan & Tahun
+  const activeHistoryData = useMemo(() => {
+    let items = store.schedules
+    if (historyMonth !== 'Semua Bulan') {
+      const mIdx = MONTH_NAMES.indexOf(historyMonth as any) + 1
+      const mStr = mIdx < 10 ? `0${mIdx}` : `${mIdx}`
+      items = items.filter((s) => s.eventDate && s.eventDate.slice(5, 7) === mStr)
+    }
+    if (historyYear !== 'Semua Tahun') {
+      items = items.filter((s) => s.eventDate && s.eventDate.startsWith(historyYear))
+    }
+    items = [...items].sort((a, b) => (b.eventDate || '').localeCompare(a.eventDate || ''))
+
+    const lunasItems = items.filter((s) => s.status === 'Lunas')
+    const totalRevenue = lunasItems.reduce((acc, s) => acc + getBookingPrice(s, store.packages), 0)
+    const periodLabel = `${historyMonth !== 'Semua Bulan' ? historyMonth : ''} ${historyYear !== 'Semua Tahun' ? historyYear : (historyMonth === 'Semua Bulan' ? 'Semua Waktu' : '')}`.trim()
+
+    return { items, lunasItems, totalRevenue, periodLabel }
+  }, [store.schedules, store.packages, historyMonth, historyYear])
+
+  const historyTotalItems = activeHistoryData.items.length
+  const historyTotalPages = Math.ceil(historyTotalItems / 6) || 1
+  const validHistoryPage = Math.min(historyPage, historyTotalPages)
+  const paginatedHistoryItems = activeHistoryData.items.slice((validHistoryPage - 1) * 6, validHistoryPage * 6)
+
   return <>
-    {/* Header & Toolbar: Searching di sebelah kiri tombol Tambah Jadwal (Semua 1 baris) */}
-    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="shrink-0">
-        <h2 className="text-lg font-bold text-slate-900">Jadwal Booking</h2>
-        <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">Berikut booking pelanggan</p>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
-        {/* Searching */}
-        <div className="relative w-full sm:w-64">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-            placeholder="Cari pelanggan, paket, lokasi..."
-            className="field !py-2 !pl-9 !pr-7 !text-xs sm:!text-sm"
-          />
-          {search && (
-            <button
-              type="button"
-              onClick={() => { setSearch(''); setCurrentPage(1); }}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
-
-        {/* Tombol Tambah Jadwal */}
+    {/* Sub-tab Navigation: Daftar Booking vs History Booking */}
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3.5">
+      <div className="flex items-center gap-2">
         <button
-          onClick={() => onOpen('schedule')}
-          className="btn-primary !px-4 !py-2 text-xs sm:!py-2.5 sm:text-sm shrink-0 whitespace-nowrap"
+          type="button"
+          onClick={() => setScheduleView('list')}
+          className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-bold transition ${
+            scheduleView === 'list'
+              ? 'bg-rose-500 text-white shadow-xs'
+              : 'border border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:text-rose-600'
+          }`}
         >
-          <Plus size={16} />Tambah jadwal
+          <CalendarDays size={16} />
+          Daftar Booking
+        </button>
+        <button
+          type="button"
+          onClick={() => setScheduleView('history')}
+          className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-bold transition ${
+            scheduleView === 'history'
+              ? 'bg-rose-500 text-white shadow-xs'
+              : 'border border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:text-rose-600'
+          }`}
+        >
+          <TrendingUp size={16} />
+          History Booking
         </button>
       </div>
     </div>
 
-    {paginated.length ? <>
-      <div className="grid gap-3 md:hidden">
-        {paginated.map((item) => {
-          const collisions = store.schedules.filter((other) => other.id !== item.id && hasScheduleCollision(other, item))
-          return <article key={item.id} role="button" tabIndex={0} onClick={() => setSelectedSchedule(item)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedSchedule(item) } }} className="min-w-0 cursor-pointer rounded-xl border border-slate-200 bg-white p-3 transition hover:border-rose-200 hover:bg-rose-50/30 focus:outline-none focus:ring-2 focus:ring-rose-200 sm:p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="break-words text-sm font-bold text-slate-900">{item.clientName}</h3>{collisions.length > 0 && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700">Bentrok</span>}</div><p className="mt-1 break-words text-xs font-semibold text-slate-700">{item.packageName}</p></div>
-              <div onClick={(event) => event.stopPropagation()}><RowActions onEdit={() => editSchedule(item)} onDelete={() => onDelete('schedules', item.id)} /></div>
+    {scheduleView === 'history' ? (
+      /* ==================== TAMPILAN HISTORY BOOKING ==================== */
+      <div className="space-y-5">
+        {/* Filter 2 Dropdown (Bulan dan Tahun) dengan style SearchableSelect */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/60 p-3.5 sm:p-4 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600">
+              <Filter size={18} />
+            </span>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Filter History Booking</h3>
+              <p className="text-xs text-slate-500">Pilih bulan dan tahun untuk melihat riwayat pelaksanaan jadwal</p>
             </div>
-            <div className="mt-3 grid grid-cols-1 gap-2 border-t border-slate-100 pt-3 min-[380px]:grid-cols-2">
-              <div><p className="text-[11px] font-bold uppercase text-slate-500">Pelaksanaan</p><p className="mt-1 text-xs font-semibold text-slate-800">{formatDate(item.eventDate)}{item.eventTime ? ` · ${item.eventTime} WIB` : ''}</p></div>
-              <div><p className="text-[11px] font-bold uppercase text-slate-500">Status</p><div className="mt-1"><StatusBadge status={item.status} /></div></div>
-              <div className="min-w-0 min-[380px]:col-span-2"><p className="text-[11px] font-bold uppercase text-slate-500">Lokasi</p><p className="mt-1 flex items-start gap-1 break-words text-xs font-medium text-slate-700"><MapPin size={14} className="mt-0.5 shrink-0 text-rose-500" />{item.location || 'Lokasi belum diisi'}</p></div>
+          </div>
+
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
+            {/* Filter 1: Bulan */}
+            <SearchableSelect
+              options={['Semua Bulan', ...MONTH_NAMES]}
+              value={historyMonth}
+              onChange={(val) => {
+                setHistoryMonth(val)
+                setHistoryPage(1)
+              }}
+              placeholder="Pilih Bulan"
+              searchPlaceholder="Cari bulan..."
+              className="w-full sm:w-44 shrink-0"
+              buttonClassName="!py-2 !text-xs sm:!text-sm bg-white shadow-xs"
+            />
+
+            {/* Filter 2: Tahun */}
+            <SearchableSelect
+              options={['Semua Tahun', ...availableYears]}
+              value={historyYear}
+              onChange={(val) => {
+                setHistoryYear(val)
+                setHistoryPage(1)
+              }}
+              placeholder="Pilih Tahun"
+              searchPlaceholder="Cari tahun..."
+              className="w-full sm:w-36 shrink-0"
+              buttonClassName="!py-2 !text-xs sm:!text-sm bg-white shadow-xs"
+            />
+          </div>
+        </div>
+
+        {/* Ringkasan Pendapatan (Status Lunas) Berdasarkan Filter Bulan & Tahun */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-500 to-teal-700 p-4 text-white shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">
+                Total Pendapatan (Lunas)
+              </span>
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 text-white backdrop-blur-xs">
+                <TrendingUp size={15} />
+              </span>
             </div>
-            {item.notes && <p className="mt-3 break-words border-t border-slate-100 pt-3 text-xs leading-5 text-slate-700"><span className="font-bold">Catatan:</span> {item.notes}</p>}
-          </article>
-        })}
+            <p className="mt-2 text-2xl font-black tracking-tight">
+              {rupiah(activeHistoryData.totalRevenue)}
+            </p>
+            <p className="mt-1 text-xs text-emerald-100">
+              Periode: <span className="font-semibold">{activeHistoryData.periodLabel || 'Semua Waktu'}</span>
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                Transaksi Lunas
+              </span>
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                <Check size={15} />
+              </span>
+            </div>
+            <p className="mt-2 text-2xl font-black text-slate-900 tracking-tight">
+              {activeHistoryData.lunasItems.length} Booking
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Dari total {activeHistoryData.items.length} booking pada periode ini
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs sm:col-span-2 lg:col-span-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                Rata-rata / Booking
+              </span>
+              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                <Clock3 size={15} />
+              </span>
+            </div>
+            <p className="mt-2 text-2xl font-black text-slate-900 tracking-tight">
+              {activeHistoryData.lunasItems.length > 0
+                ? rupiah(Math.round(activeHistoryData.totalRevenue / activeHistoryData.lunasItems.length))
+                : 'Rp 0'}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Dihitung dari pesanan yang sudah lunas
+            </p>
+          </div>
+        </div>
+
+        {/* Tabel Tunggal Riwayat Reservasi (Disesuaikan dengan Filter Bulan & Tahun) */}
+        {activeHistoryData.items.length ? (
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs">
+            <div className="border-b border-slate-100 bg-slate-50/70 px-4 py-3 text-xs font-bold text-slate-700">
+              <span>Daftar Riwayat Booking</span>
+            </div>
+            
+            {/* Tampilan Mobile Card */}
+            <div className="grid gap-3 p-3 md:hidden">
+              {paginatedHistoryItems.map((item) => (
+                <article
+                  key={item.id}
+                  onClick={() => setSelectedSchedule(item)}
+                  className="cursor-pointer rounded-xl border border-slate-200 bg-white p-3 shadow-2xs hover:border-rose-200"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm">{item.clientName}</h4>
+                      <p className="text-xs font-semibold text-slate-600 mt-0.5">{item.packageName}</p>
+                    </div>
+                    <div className="text-right">
+                      <StatusBadge status={item.status} />
+                      <p className={`mt-1 text-xs font-bold ${item.status === 'Lunas' ? 'text-emerald-700' : 'text-slate-500'}`}>
+                        {rupiah(getBookingPrice(item, store.packages))}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-2.5 flex items-center justify-between text-xs border-t border-slate-100 pt-2 font-medium text-slate-500">
+                    <span>{formatDate(item.eventDate)} {item.eventTime ? `· ${item.eventTime} WIB` : ''}</span>
+                    <span className="truncate max-w-[150px]">{item.location || 'Lokasi belum diisi'}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            {/* Tampilan Desktop Table */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/40 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                    <th className="py-3 px-4">Tanggal Pelaksanaan</th>
+                    <th className="py-3 px-4">Nama Pelanggan</th>
+                    <th className="py-3 px-4">Paket Rias</th>
+                    <th className="py-3 px-4">Biaya / Nominal</th>
+                    <th className="py-3 px-4">Lokasi Acara</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4 text-right">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-xs">
+                  {paginatedHistoryItems.map((item) => (
+                    <tr key={item.id} className="hover:bg-rose-50/20 transition">
+                      <td className="py-3 px-4 font-semibold text-slate-700 whitespace-nowrap">
+                        {formatDate(item.eventDate)} {item.eventTime ? `· ${item.eventTime} WIB` : ''}
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <p className="font-bold text-slate-900">{item.clientName}</p>
+                        {item.whatsapp && <p className="text-[11px] text-slate-400">{item.whatsapp}</p>}
+                      </td>
+                      <td className="py-3 px-4 text-slate-700 font-medium">
+                        {item.packageName}
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        {item.status === 'Lunas' ? (
+                          <span className="font-bold text-emerald-700">{rupiah(getBookingPrice(item, store.packages))}</span>
+                        ) : (
+                          <span className="font-medium text-slate-500">{rupiah(getBookingPrice(item, store.packages))}</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-slate-600">
+                        {item.location || 'Lokasi belum diisi'}
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <StatusBadge status={item.status} />
+                      </td>
+                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSchedule(item)}
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 transition shadow-2xs"
+                        >
+                          Detail
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Riwayat Bulanan */}
+            {historyTotalPages > 1 && (
+              <div className="p-3 border-t border-slate-100 bg-slate-50/30">
+                <AdminPagination
+                  currentPage={validHistoryPage}
+                  totalPages={historyTotalPages}
+                  totalItems={historyTotalItems}
+                  pageSize={6}
+                  onPageChange={setHistoryPage}
+                />
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-slate-200 py-12 text-center bg-white">
+            <CalendarDays className="mx-auto mb-2 text-slate-400" size={24} />
+            <p className="text-sm font-semibold text-slate-700">Belum ada riwayat booking pada periode ini</p>
+            <p className="mt-1 text-xs text-slate-500">Pilih periode bulan atau tahun lain pada dropdown filter di atas.</p>
+          </div>
+        )}
       </div>
-      <div className="hidden overflow-x-auto md:block">
-        <table className="w-full min-w-[720px] text-left">
-          <thead>
-            <tr className="border-y border-slate-100 text-[11px] uppercase tracking-wider text-slate-500">
-              <th
-                className="py-3 pr-4 font-semibold cursor-pointer select-none hover:text-rose-600"
-                onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
-                title="Klik untuk mengubah urutan"
-              >
-                <div className="flex items-center gap-1.5">
-                  <span>NAMA PELANGGAN</span>
-                  <ChevronsUpDown size={14} className={sortOrder === 'asc' ? 'text-rose-600' : 'text-slate-400'} />
-                </div>
-              </th>
-              <th className="px-4 py-3 font-semibold">Pelaksanaan</th>
-              <th className="px-4 py-3 font-semibold">Paket</th>
-              <th className="px-4 py-3 font-semibold">Status</th>
-              <th className="py-3 pl-4 text-center font-semibold">Aksi</th>
-            </tr>
-          </thead>
-          <tbody>
+    ) : (
+      /* ==================== TAMPILAN DAFTAR BOOKING AKTIF ==================== */
+      <>
+        {/* Header & Toolbar: Filter Bulan, Filter Tahun, Searching, Tambah Jadwal (Semua 1 baris) */}
+        <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="shrink-0">
+            <h2 className="text-lg font-bold text-slate-900">Jadwal Booking</h2>
+            <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">Berikut booking pelanggan</p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap">
+            {/* Filter 1: Bulan */}
+            <SearchableSelect
+              options={['Semua Bulan', ...MONTH_NAMES]}
+              value={selectedMonth}
+              onChange={(val) => {
+                setSelectedMonth(val)
+                setCurrentPage(1)
+              }}
+              placeholder="Pilih Bulan"
+              searchPlaceholder="Cari bulan..."
+              className="w-full sm:w-44 shrink-0"
+              buttonClassName="!py-2 !text-xs sm:!text-sm"
+            />
+
+            {/* Filter 2: Tahun */}
+            <SearchableSelect
+              options={['Semua Tahun', ...availableYears]}
+              value={selectedYear}
+              onChange={(val) => {
+                setSelectedYear(val)
+                setCurrentPage(1)
+              }}
+              placeholder="Pilih Tahun"
+              searchPlaceholder="Cari tahun..."
+              className="w-full sm:w-36 shrink-0"
+              buttonClassName="!py-2 !text-xs sm:!text-sm"
+            />
+
+            {/* Searching */}
+            <div className="relative w-full sm:w-52 lg:w-60">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+                placeholder="Cari pelanggan, paket, lokasi..."
+                className="field !py-2 !pl-9 !pr-7 !text-xs sm:!text-sm"
+              />
+              {search && (
+                <button
+                  type="button"
+                  onClick={() => { setSearch(''); setCurrentPage(1); }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* Tombol Tambah Jadwal */}
+            <button
+              onClick={() => onOpen('schedule')}
+              className="btn-primary !px-4 !py-2 text-xs sm:!py-2.5 sm:text-sm shrink-0 whitespace-nowrap"
+            >
+              <Plus size={16} />Tambah jadwal
+            </button>
+          </div>
+        </div>
+
+        {paginated.length ? <>
+          <div className="grid gap-3 md:hidden">
             {paginated.map((item) => {
               const collisions = store.schedules.filter((other) => other.id !== item.id && hasScheduleCollision(other, item))
-              return <tr key={item.id} tabIndex={0} onClick={() => setSelectedSchedule(item)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedSchedule(item) } }} className="cursor-pointer border-b border-slate-100 bg-white transition last:border-0 hover:bg-rose-50/50 focus:bg-rose-50/50 focus:outline-none">
-                <td className="py-3 pr-4 align-top">
-                  <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold text-slate-800">{item.clientName}</span>{collisions.length > 0 && <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-bold text-rose-700">Bentrok</span>}</div>
-                  {item.notes && <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-slate-500"><span className="font-semibold text-slate-600">Catatan:</span> {item.notes}</p>}
-                </td>
-                <td className="px-4 py-3 align-top"><p className="text-sm font-semibold text-slate-800">{formatDate(item.eventDate)}</p>{item.eventTime && <p className="mt-1 text-xs text-slate-500">{item.eventTime} WIB</p>}<p className="mt-1.5 flex items-start gap-1 text-xs leading-5 text-slate-600"><MapPin size={14} className="mt-0.5 shrink-0 text-rose-500" />{item.location || 'Lokasi belum diisi'}</p></td>
-                <td className="px-4 py-3 align-top text-sm font-semibold text-slate-700">{item.packageName}</td>
-                <td className="px-4 py-3 align-top"><StatusBadge status={item.status} /></td>
-                <td className="py-3 pl-4 text-right align-top" onClick={(event) => event.stopPropagation()}><RowActions onEdit={() => editSchedule(item)} onDelete={() => onDelete('schedules', item.id)} /></td>
-              </tr>
+              return <article key={item.id} role="button" tabIndex={0} onClick={() => setSelectedSchedule(item)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedSchedule(item) } }} className="min-w-0 cursor-pointer rounded-xl border border-slate-200 bg-white p-3 transition hover:border-rose-200 hover:bg-rose-50/30 focus:outline-none focus:ring-2 focus:ring-rose-200 sm:p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="break-words text-sm font-bold text-slate-900">{item.clientName}</h3>{collisions.length > 0 && <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold text-rose-700">Bentrok</span>}</div><p className="mt-1 break-words text-xs font-semibold text-slate-700">{item.packageName}</p></div>
+                  <div onClick={(event) => event.stopPropagation()}><RowActions onEdit={() => editSchedule(item)} onDelete={() => onDelete('schedules', item.id)} /></div>
+                </div>
+                <div className="mt-3 grid grid-cols-1 gap-2 border-t border-slate-100 pt-3 min-[380px]:grid-cols-2">
+                  <div><p className="text-[11px] font-bold uppercase text-slate-500">Pelaksanaan</p><p className="mt-1 text-xs font-semibold text-slate-800">{formatDate(item.eventDate)}{item.eventTime ? ` · ${item.eventTime} WIB` : ''}</p></div>
+                  <div><p className="text-[11px] font-bold uppercase text-slate-500">Status</p><div className="mt-1"><StatusBadge status={item.status} /></div></div>
+                  <div className="min-w-0 min-[380px]:col-span-2"><p className="text-[11px] font-bold uppercase text-slate-500">Lokasi</p><p className="mt-1 flex items-start gap-1 break-words text-xs font-medium text-slate-700"><MapPin size={14} className="mt-0.5 shrink-0 text-rose-500" />{item.location || 'Lokasi belum diisi'}</p></div>
+                </div>
+                {item.notes && <p className="mt-3 break-words border-t border-slate-100 pt-3 text-xs leading-5 text-slate-700"><span className="font-bold">Catatan:</span> {item.notes}</p>}
+              </article>
             })}
-          </tbody>
-        </table>
-      </div>
-      <AdminPagination
-        currentPage={validPage}
-        totalPages={totalPages}
-        totalItems={totalItems}
-        pageSize={6}
-        onPageChange={setCurrentPage}
-      />
-    </> : (
-      search ? (
-        <div className="rounded-xl border border-dashed border-slate-200 py-10 text-center">
-          <Search className="mx-auto mb-2 text-slate-400" size={20} />
-          <p className="text-sm font-semibold text-slate-700">Booking tidak ditemukan</p>
-          <p className="mt-1 text-xs text-slate-500">Coba ubah kata kunci pencarian.</p>
-        </div>
-      ) : (
-        <EmptyState label="Belum ada booking tercatat." />
-      )
+          </div>
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full min-w-[720px] text-left">
+              <thead>
+                <tr className="border-y border-slate-100 text-[11px] uppercase tracking-wider text-slate-500">
+                  <th
+                    className="py-3 pr-4 font-semibold cursor-pointer select-none hover:text-rose-600"
+                    onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
+                    title="Klik untuk mengubah urutan"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>NAMA PELANGGAN</span>
+                      <ChevronsUpDown size={14} className={sortOrder === 'asc' ? 'text-rose-600' : 'text-slate-400'} />
+                    </div>
+                  </th>
+                  <th className="px-4 py-3 font-semibold">Pelaksanaan</th>
+                  <th className="px-4 py-3 font-semibold">Paket</th>
+                  <th className="px-4 py-3 font-semibold">Status</th>
+                  <th className="py-3 pl-4 text-center font-semibold">Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginated.map((item) => {
+                  const collisions = store.schedules.filter((other) => other.id !== item.id && hasScheduleCollision(other, item))
+                  return <tr key={item.id} tabIndex={0} onClick={() => setSelectedSchedule(item)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedSchedule(item) } }} className="cursor-pointer border-b border-slate-100 bg-white transition last:border-0 hover:bg-rose-50/50 focus:bg-rose-50/50 focus:outline-none">
+                    <td className="py-3 pr-4 align-top">
+                      <div className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold text-slate-800">{item.clientName}</span>{collisions.length > 0 && <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-bold text-rose-700">Bentrok</span>}</div>
+                      {item.notes && <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-slate-500"><span className="font-semibold text-slate-600">Catatan:</span> {item.notes}</p>}
+                    </td>
+                    <td className="px-4 py-3 align-top"><p className="text-sm font-semibold text-slate-800">{formatDate(item.eventDate)}</p>{item.eventTime && <p className="mt-1 text-xs text-slate-500">{item.eventTime} WIB</p>}<p className="mt-1.5 flex items-start gap-1 text-xs leading-5 text-slate-600"><MapPin size={14} className="mt-0.5 shrink-0 text-rose-500" />{item.location || 'Lokasi belum diisi'}</p></td>
+                    <td className="px-4 py-3 align-top text-sm font-semibold text-slate-700">{item.packageName}</td>
+                    <td className="px-4 py-3 align-top"><StatusBadge status={item.status} /></td>
+                    <td className="py-3 pl-4 text-right align-top" onClick={(event) => event.stopPropagation()}><RowActions onEdit={() => editSchedule(item)} onDelete={() => onDelete('schedules', item.id)} /></td>
+                  </tr>
+                })}
+              </tbody>
+            </table>
+          </div>
+          <AdminPagination
+            currentPage={validPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            pageSize={6}
+            onPageChange={setCurrentPage}
+          />
+        </> : (
+          search || selectedMonth !== 'Semua Bulan' || selectedYear !== 'Semua Tahun' ? (
+            <div className="rounded-xl border border-dashed border-slate-200 py-10 text-center">
+              <Search className="mx-auto mb-2 text-slate-400" size={20} />
+              <p className="text-sm font-semibold text-slate-700">Booking tidak ditemukan</p>
+              <p className="mt-1 text-xs text-slate-500">Coba ubah filter bulan atau kata kunci pencarian.</p>
+            </div>
+          ) : (
+            <EmptyState label="Belum ada booking tercatat." />
+          )
+        )}
+      </>
     )}
     {selectedSchedule && <ScheduleDetailsModal schedule={selectedSchedule} collisions={store.schedules.filter((item) => item.id !== selectedSchedule.id && hasScheduleCollision(item, selectedSchedule))} onClose={() => setSelectedSchedule(null)} onEdit={() => editSchedule(selectedSchedule)} />}
   </>
@@ -1694,7 +2513,6 @@ function GalleryManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen
     <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="shrink-0">
         <h2 className="text-lg font-bold text-slate-900">Kelola Foto Portfolio</h2>
-        <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">Foto ini tampil sebagai slider di dalam katalog publik.</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
@@ -1739,7 +2557,6 @@ function GalleryManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen
           <span>PORTFOLIO</span>
           <ChevronsUpDown size={14} className={sortOrder === 'asc' ? 'text-rose-600' : 'text-slate-400'} />
         </button>
-        <span className="text-xs text-slate-400 font-normal">Total {totalItems} karya</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {paginated.map((item) => (
@@ -1777,6 +2594,260 @@ function GalleryManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen
       )
     )}
   </>
+}
+
+function CertificatesManager({
+  store,
+  onOpen,
+  onDelete,
+}: {
+  store: SalonStore
+  onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category | Certificate) => void
+  onDelete: (collection: 'packages' | 'schedules' | 'gallery' | 'certificates', id: string) => void
+}) {
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 6
+  const totalItems = store.certificates.length
+  const totalPages = Math.ceil(totalItems / pageSize) || 1
+  const validPage = Math.min(currentPage, totalPages)
+  const paginated = store.certificates.slice((validPage - 1) * pageSize, validPage * pageSize)
+
+  return (
+    <>
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">Kelola Sertifikat</h2>
+          <p className="mt-1 text-sm font-medium text-slate-600">
+            Foto sertifikat keahlian dan lisensi resmi studio Desy Salon
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onOpen('certificate')}
+          className="btn-primary !px-4 !py-2.5 text-xs sm:text-sm self-start sm:self-auto"
+        >
+          <Plus size={16} /> Tambah Sertifikat
+        </button>
+      </div>
+
+      {paginated.length ? (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {paginated.map((item) => (
+              <article
+                key={item.id}
+                className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xs transition hover:border-rose-200"
+              >
+                <div className="aspect-[4/3] w-full overflow-hidden bg-slate-100">
+                  <img
+                    src={item.imageUrl}
+                    alt={item.title || 'Sertifikat'}
+                    className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                  />
+                </div>
+                <div className="flex items-center justify-between border-t border-slate-100 p-3">
+                  <span className="truncate text-xs font-semibold text-slate-700" title={item.title || 'Sertifikat Resmi'}>
+                    {item.title || 'Sertifikat Resmi'}
+                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      aria-label="Edit"
+                      title="Edit"
+                      onClick={() => onOpen('certificate', item)}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-xs transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                    >
+                      <Edit3 size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Hapus"
+                      title="Hapus"
+                      onClick={() => onDelete('certificates', item.id)}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-xs transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+          <AdminPagination
+            currentPage={validPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+          />
+        </>
+      ) : (
+        <EmptyState label="Belum ada sertifikat yang diunggah. Klik 'Tambah Sertifikat' untuk menambahkan." />
+      )}
+    </>
+  )
+}
+
+function FaqManager({
+  store,
+  onOpen,
+  onDelete,
+}: {
+  store: SalonStore
+  onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category | Certificate | FaqItem) => void
+  onDelete: (collection: 'packages' | 'schedules' | 'gallery' | 'certificates' | 'faqs', id: string) => void
+}) {
+  const [currentPage, setCurrentPage] = useState(1)
+  const [categoryFilter, setCategoryFilter] = useState('Semua')
+  const [searchQuery, setSearchQuery] = useState('')
+  const pageSize = 6
+
+  const categories = useMemo(() => {
+    const list = Array.from(new Set(store.faqs.map((f) => f.category).filter(Boolean)))
+    return ['Semua', ...list]
+  }, [store.faqs])
+
+  const filteredFaqs = useMemo(() => {
+    return store.faqs.filter((item) => {
+      const matchCat = categoryFilter === 'Semua' || item.category === categoryFilter
+      const query = searchQuery.toLowerCase().trim()
+      const matchSearch = !query ||
+        item.question.toLowerCase().includes(query) ||
+        item.answer.toLowerCase().includes(query)
+      return matchCat && matchSearch
+    })
+  }, [store.faqs, categoryFilter, searchQuery])
+
+  const totalItems = filteredFaqs.length
+  const totalPages = Math.ceil(totalItems / pageSize) || 1
+  const validPage = Math.min(currentPage, totalPages)
+  const paginated = filteredFaqs.slice((validPage - 1) * pageSize, validPage * pageSize)
+
+  return (
+    <>
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">Kelola FAQ</h2>
+          <p className="mt-1 text-sm font-medium text-slate-600">
+            Daftar pertanyaan dan jawaban yang tampil pada section FAQ halaman utama
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onOpen('faq')}
+          className="btn-primary !px-4 !py-2.5 text-xs sm:text-sm self-start sm:self-auto"
+        >
+          <Plus size={16} /> Tambah FAQ
+        </button>
+      </div>
+
+      {/* Filter Kategori & Search */}
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => { setCategoryFilter(cat); setCurrentPage(1) }}
+              className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
+                categoryFilter === cat
+                  ? 'bg-rose-500 text-white shadow-xs'
+                  : 'border border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:text-rose-600'
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+        <div className="relative w-full sm:w-64">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
+            placeholder="Cari FAQ..."
+            className="w-full rounded-xl border border-slate-200 bg-white py-1.5 pl-9 pr-3 text-xs text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:outline-none focus:ring-1 focus:ring-rose-200"
+          />
+        </div>
+      </div>
+
+      {paginated.length ? (
+        <>
+          {/* Card Grid with 100% strict uniform height and width */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {paginated.map((item) => (
+              <article
+                key={item.id}
+                className="group relative flex h-[240px] flex-col justify-between overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs transition hover:border-rose-200 hover:shadow-xs"
+              >
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className={`inline-block shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                        item.category === 'Tata Rias'
+                          ? 'border border-rose-100 bg-rose-50 text-rose-600'
+                          : 'border border-sky-100 bg-sky-50 text-sky-600'
+                      }`}
+                    >
+                      {item.category}
+                    </span>
+                  </div>
+                  <h3
+                    className="mt-2.5 h-11 text-sm font-bold leading-snug text-slate-900 line-clamp-2 overflow-hidden"
+                    title={item.question}
+                  >
+                    {item.question}
+                  </h3>
+                  <p
+                    className="mt-2 h-[72px] text-xs leading-relaxed text-slate-600 line-clamp-3 overflow-hidden"
+                    title={item.answer}
+                  >
+                    {item.answer}
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between border-t border-slate-100 pt-3 mt-2 shrink-0">
+                  <span className="text-[11px] font-medium text-slate-400 truncate max-w-[140px]">
+                    ID: {item.id}
+                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      aria-label="Edit FAQ"
+                      title="Edit"
+                      onClick={() => onOpen('faq', item)}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-xs transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                    >
+                      <Edit3 size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Hapus FAQ"
+                      title="Hapus"
+                      onClick={() => onDelete('faqs', item.id)}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-xs transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <AdminPagination
+            currentPage={validPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+          />
+        </>
+      ) : (
+        <EmptyState label="Belum ada FAQ yang sesuai. Klik 'Tambah FAQ' untuk menambahkan pertanyaan baru." />
+      )}
+    </>
+  )
 }
 
 function SettingsManager({ store, onSave, onLogout }: { store: SalonStore; onSave: (event: FormEvent<HTMLFormElement>) => void; onLogout: () => void }) {
@@ -1827,6 +2898,16 @@ function SettingsManager({ store, onSave, onLogout }: { store: SalonStore; onSav
       </div>
 
       <div className="md:col-span-2"><label className="label" htmlFor="studio-address">Alamat studio</label><input id="studio-address" name="address" defaultValue={store.profile.address} className="field" /></div>
+      <div className="md:col-span-2">
+        <label className="label" htmlFor="studio-maps-url">Link Google Maps Studio</label>
+        <input
+          id="studio-maps-url"
+          name="mapsUrl"
+          defaultValue={store.profile.mapsUrl ?? 'https://maps.app.goo.gl/1mqYn88NWe9zq8AV9'}
+          className="field"
+          placeholder="https://maps.app.goo.gl/..."
+        />
+      </div>
       <div className="md:col-span-2 mt-3 border-t border-slate-100 pt-5"><h3 className="text-sm font-bold text-slate-800">Kredensial login admin</h3><p className="mt-1 text-xs font-medium text-slate-600">Gunakan password minimal 6 karakter.</p></div>
       <div><label className="label" htmlFor="admin-user">Username</label><input required id="admin-user" name="username" defaultValue={store.credentials.username} className="field" /></div>
       <div><label className="label" htmlFor="admin-password">Password baru</label><input required minLength={6} id="admin-password" name="password" defaultValue={store.credentials.password} type="password" className="field" /></div>
@@ -1836,10 +2917,10 @@ function SettingsManager({ store, onSave, onLogout }: { store: SalonStore; onSav
 }
 
 function EntityModal({ editor, store, onClose, onSave }: {
-  editor: { kind: EditorKind; item?: Package | Schedule | GalleryItem | Category }
+  editor: { kind: EditorKind; item?: Package | Schedule | GalleryItem | Category | Certificate | FaqItem }
   store: SalonStore
   onClose: () => void
-  onSave: (event: FormEvent<HTMLFormElement>, kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void
+  onSave: (event: FormEvent<HTMLFormElement>, kind: EditorKind, item?: Package | Schedule | GalleryItem | Category | Certificate | FaqItem) => void
 }) {
   const { kind, item } = editor
   const titles: Record<EditorKind, string> = {
@@ -1847,18 +2928,34 @@ function EntityModal({ editor, store, onClose, onSave }: {
     schedule: item ? 'Edit Jadwal' : 'Tambah Jadwal',
     gallery: item ? 'Edit Foto Portfolio' : 'Tambah Foto Portfolio',
     category: item ? 'Edit Kategori' : 'Tambah Kategori',
+    certificate: item ? 'Edit Sertifikat' : 'Tambah Sertifikat',
+    faq: item ? 'Edit FAQ' : 'Tambah FAQ',
   }
   const packageItem = item as Package | undefined
   const scheduleItem = item as Schedule | undefined
   const galleryItem = item as GalleryItem | undefined
   const categoryItem = item as Category | undefined
+  const certificateItem = item as Certificate | undefined
+  const faqItem = item as FaqItem | undefined
 
-  const [imageData, setImageData] = useState(kind === 'package' ? packageItem?.image ?? '' : kind === 'gallery' ? galleryItem?.imageUrl ?? '' : '')
+  const [imageData, setImageData] = useState(
+    kind === 'package' ? packageItem?.image ?? '' :
+    kind === 'gallery' ? galleryItem?.imageUrl ?? '' :
+    kind === 'certificate' ? certificateItem?.imageUrl ?? '' : ''
+  )
   const [selectedFileName, setSelectedFileName] = useState('')
   const [imageError, setImageError] = useState('')
 
   const input = (label: string, name: string, value = '', props: Record<string, string> = {}) => <div><label className="label" htmlFor={`editor-${name}`}>{label}</label><input id={`editor-${name}`} name={name} defaultValue={value} className="field" {...props} /></div>
-  const select = (label: string, name: string, options: readonly string[], selected = '') => <div><label className="label" htmlFor={`editor-${name}`}>{label}</label><select id={`editor-${name}`} name={name} defaultValue={selected || options[0]} className="field">{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></div>
+  const select = (label: string, name: string, options: readonly string[], selected = '') => (
+    <SearchableSelect
+      label={label}
+      name={name}
+      options={options}
+      defaultValue={selected || options[0]}
+      searchPlaceholder={`Cari ${label.toLowerCase()}...`}
+    />
+  )
   const textarea = (label: string, name: string, value = '', placeholder = '') => <div className="sm:col-span-2"><label className="label" htmlFor={`editor-${name}`}>{label}</label><textarea id={`editor-${name}`} name={name} defaultValue={value} placeholder={placeholder} className="field min-h-20 resize-y" /></div>
   const imageField = (name: 'image' | 'imageUrl', label: string) => <div className="sm:col-span-2"><span className="label">{label} *</span><input type="hidden" name={name} value={imageData} /><label htmlFor="editor-image-file" className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-rose-200 bg-rose-50/60 px-4 py-4 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"><Image size={17} />Pilih gambar dari perangkat<input id="editor-image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" required={!imageData} className="sr-only" onChange={async (event) => { const file = event.currentTarget.files?.[0]; if (!file) return; const fileInput = event.currentTarget; setImageError(''); try { setImageData(await imageFileToDataUrl(file)); setSelectedFileName(file.name) } catch (error) { setImageError(error instanceof Error ? error.message : 'Gambar tidak dapat diproses.'); fileInput.value = '' } }} /></label><p className="mt-1.5 text-xs text-slate-400">PNG, JPG, atau JPEG. Maks. 15 MB; gambar akan diperkecil untuk penyimpanan.</p>{selectedFileName && <p className="mt-1 text-xs font-medium text-slate-600">File dipilih: {selectedFileName}</p>}{imageError && <p role="alert" className="mt-2 text-xs font-medium text-rose-600">{imageError}</p>}{imageData && <div className="mt-3 flex items-center gap-3 rounded-xl border border-slate-100 p-2.5"><img src={imageData} alt="Preview gambar" className="h-16 w-20 rounded-lg bg-slate-100 object-cover" /><span className="flex-1 text-xs font-medium text-slate-600">Preview gambar</span><button type="button" onClick={() => { setImageData(''); setSelectedFileName('') }} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50">Hapus</button></div>}</div>
 
@@ -1872,13 +2969,16 @@ function EntityModal({ editor, store, onClose, onSave }: {
         defaultValue={packageItem?.category}
         searchPlaceholder="Cari kategori..."
       />
-      {input('Harga (angka) *', 'price', packageItem ? String(packageItem.price) : '', { type: 'number', min: '1', required: 'true', placeholder: '1850000' })}
-      {input('Harga sebelum diskon', 'originalPrice', packageItem?.originalPrice ? String(packageItem.originalPrice) : '', { type: 'number', min: '1', placeholder: 'Opsional' })}
+      {input('Harga mulai / tetap (angka) *', 'price', packageItem ? String(packageItem.price) : '', { type: 'number', min: '1', required: 'true', placeholder: '1850000' })}
+      {input('Harga batas atas (rentang harga)', 'priceMax', packageItem?.priceMax ? String(packageItem.priceMax) : '', { type: 'number', min: '1', placeholder: 'Kosongkan jika perawatan / harga tetap' })}
+      {input('Harga sebelum diskon (coret)', 'originalPrice', packageItem?.originalPrice ? String(packageItem.originalPrice) : '', { type: 'number', min: '1', placeholder: 'Opsional' })}
       {input('Badge promo', 'badge', packageItem?.badge, { placeholder: 'Contoh: Favorit' })}
       {imageField('image', 'Foto paket')}
       {textarea('Deskripsi', 'description', packageItem?.description, 'Ceritakan keunggulan paket...')}
       {textarea('Fitur (satu fitur per baris)', 'features', packageItem?.features.join('\n'), 'Makeup premium\nHairdo')}
-      <p className="sm:col-span-2 -mt-3 text-[11px] text-slate-400">Setiap baris akan menjadi satu fitur paket.</p>
+      <p className="sm:col-span-2 -mt-2 rounded-xl border border-rose-100 bg-rose-50/60 p-3 text-[11px] text-slate-600">
+        💡 <strong>Ketentuan Harga:</strong> Untuk kategori <strong>Perawatan</strong> cukup isi <em>Harga mulai / tetap</em> (akan tampil harga tetap). Untuk <strong>Rias, Akad, Resepsi, Wisuda</strong>, isi juga <em>Harga batas atas</em> agar tampil sebagai rentang harga (misal: <em>Rp 1.850.000 – Rp 2.500.000</em>).
+      </p>
     </>}
     {kind === 'schedule' && <>
       {!scheduleItem && <>
@@ -1911,6 +3011,41 @@ function EntityModal({ editor, store, onClose, onSave }: {
       {input('Nama kategori *', 'categoryName', categoryItem?.name, { required: 'true', placeholder: 'Contoh: Prewedding, Hijab, Treatment' })}
       <p className="text-xs text-slate-500">Kategori baru akan langsung tampil sebagai tombol filter di menu katalog publik.</p>
     </div>}
+    {kind === 'certificate' && <>
+      {imageField('image', 'Foto Sertifikat')}
+      {input('Keterangan / Nama Sertifikat (opsional)', 'title', certificateItem?.title, { placeholder: 'Contoh: Sertifikat Tata Rias Pengantin' })}
+    </>}
+    {kind === 'faq' && <>
+      <SearchableSelect
+        label="Kategori FAQ *"
+        name="category"
+        options={['Tata Rias', 'Layanan Salon']}
+        defaultValue={faqItem?.category || 'Tata Rias'}
+        searchPlaceholder="Pilih atau cari kategori..."
+      />
+      <div className="sm:col-span-2">
+        <label className="label" htmlFor="editor-question">Pertanyaan *</label>
+        <input
+          id="editor-question"
+          name="question"
+          defaultValue={faqItem?.question}
+          required
+          placeholder="Contoh: Apakah saya harus melakukan reservasi sebelum datang ke Desy Salon?"
+          className="field"
+        />
+      </div>
+      <div className="sm:col-span-2">
+        <label className="label" htmlFor="editor-answer">Jawaban *</label>
+        <textarea
+          id="editor-answer"
+          name="answer"
+          defaultValue={faqItem?.answer}
+          required
+          placeholder="Tuliskan jawaban yang detail, jelas, dan ramah..."
+          className="field min-h-24 resize-y"
+        />
+      </div>
+    </>}
     <div className="sticky bottom-0 flex justify-end gap-2 bg-white pt-2 sm:col-span-2"><button type="button" onClick={onClose} className="btn-secondary">Batal</button><button type="submit" className="btn-primary"><Check size={16} />Simpan</button></div>
   </form></ModalFrame>
 }
