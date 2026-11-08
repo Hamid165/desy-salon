@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
-  ArrowRight, Award, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Clock3,
+  AlertCircle, ArrowRight, Award, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Clock3,
   Edit3, Facebook, Filter, Heart, HelpCircle, Home, Image, Instagram, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle,
   Music2, PackageCheck, Plus, Search, Sparkles, Trash2, TrendingUp, User, X,
 } from 'lucide-react'
 import brandLogo from './assets/logo-desyana-v2.png'
 import { initialStore } from './data'
 import type { Category, Certificate, FaqItem, GalleryItem, Package, SalonStore, Schedule } from './types'
+import { api } from './services/api'
 
 const STORE_KEY = 'desy-salon-store-v1'
 const legacyAddresses = [
@@ -115,8 +116,16 @@ function getBookingPrice(schedule: Schedule, packages: Package[]): number {
   return pkg ? pkg.price : 0
 }
 
+function normalizePhone(phone: string): string {
+  const digits = (phone || '').replace(/\D/g, '')
+  if (digits.startsWith('0')) return `62${digits.slice(1)}`
+  if (digits.startsWith('62')) return digits
+  return digits ? `62${digits}` : ''
+}
+
 function whatsappLink(phone: string) {
-  return `https://wa.me/${phone.replace(/\D/g, '')}`
+  const clean = normalizePhone(phone)
+  return `https://wa.me/${clean}`
 }
 
 function whatsappConsultationLink(phone: string, salonName = 'Desy Salon') {
@@ -141,11 +150,6 @@ function getLocalIsoTime(d: Date) {
   return `${hours}:${minutes}`
 }
 
-function normalizePhone(phone: string) {
-  const digits = phone.replace(/\D/g, '')
-  return digits.startsWith('0') ? `62${digits.slice(1)}` : digits
-}
-
 function sessionForTime(value: string): Schedule['session'] {
   const hour = Number(value.split(':')[0])
   return hour < 11 ? 'Pagi' : hour < 15 ? 'Siang' : 'Sore'
@@ -153,8 +157,24 @@ function sessionForTime(value: string): Schedule['session'] {
 
 function hasScheduleCollision(first: Schedule, second: Schedule) {
   if (first.eventDate !== second.eventDate) return false
+  if (first.session === 'Full Day' || second.session === 'Full Day') return true
   if (first.eventTime && second.eventTime) return first.eventTime === second.eventTime
   return first.session === second.session
+}
+
+function findScheduleCollision(
+  candidate: { eventDate: string; eventTime?: string; session?: Schedule['session'] },
+  schedules: Schedule[],
+  excludeId?: string
+): Schedule | undefined {
+  const candidateSession = candidate.session || (candidate.eventTime ? sessionForTime(candidate.eventTime) : 'Full Day')
+  return schedules.find((s) => {
+    if (excludeId && s.id === excludeId) return false
+    if (s.eventDate !== candidate.eventDate) return false
+    if (s.session === 'Full Day' || candidateSession === 'Full Day') return true
+    if (s.eventTime && candidate.eventTime) return s.eventTime === candidate.eventTime
+    return s.session === candidateSession
+  })
 }
 
 async function imageFileToDataUrl(file: File) {
@@ -233,6 +253,64 @@ function App() {
     return () => window.removeEventListener('popstate', syncRoute)
   }, [])
 
+  useEffect(() => {
+    if (page === 'admin') {
+      document.title = 'Studio Manager | Desy Salon'
+    } else if (page === 'login') {
+      document.title = 'Login Pengelola | Desy Salon'
+    } else if (publicRoute === '404') {
+      document.title = '404 - Halaman Tidak Ditemukan | Desy Salon'
+    } else if (publicRoute === '/paket') {
+      document.title = 'Katalog Layanan & Paket | Desy Salon'
+    } else if (publicRoute === '/sertifikat') {
+      document.title = 'Sertifikat Resmi | Desy Salon'
+    } else {
+      document.title = `${store.profile.name} - Tata Rias Pengantin & Beauty Salon`
+    }
+  }, [page, publicRoute, store.profile.name])
+
+  useEffect(() => {
+    async function loadBackendData() {
+      try {
+        const health = await api.health.check().catch(() => null)
+        if (health?.status === 'ok') {
+          const [categories, packages, schedules, gallery, profile, certificates, faqs] = await Promise.all([
+            api.categories.list().catch(() => null),
+            api.packages.list().catch(() => null),
+            api.schedules.list().catch(() => null),
+            api.gallery.list().catch(() => null),
+            api.profile.get().catch(() => null),
+            api.certificates.list().catch(() => null),
+            api.faqs.list().catch(() => null),
+          ])
+
+          setStore((current) => ({
+            ...current,
+            categories: categories && categories.length > 0 ? categories : current.categories,
+            packages: packages && packages.length > 0 ? packages : current.packages,
+            schedules: schedules && schedules.length > 0 ? schedules : current.schedules,
+            gallery: gallery && gallery.length > 0 ? gallery : current.gallery,
+            profile: profile ? { ...current.profile, ...profile } : current.profile,
+            certificates: certificates && certificates.length > 0 ? certificates : current.certificates,
+            faqs: faqs && faqs.length > 0 ? faqs : current.faqs,
+          }))
+
+          try {
+            const authCheck = await api.auth.me()
+            if (authCheck.authenticated && window.location.pathname === '/admin') {
+              setPage('admin')
+            }
+          } catch {
+            // ignore
+          }
+        }
+      } catch (err) {
+        console.warn('Backend offline, menggunakan data lokal:', err)
+      }
+    }
+    loadBackendData()
+  }, [])
+
   // Reset pagination when category or search changes
   useEffect(() => {
     setCurrentPage(1)
@@ -296,6 +374,8 @@ function App() {
         features: value('features').split('\n').map((feature) => feature.trim()).filter(Boolean),
       }
       setStore((current) => ({ ...current, packages: item ? current.packages.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.packages] }))
+      if (item) api.packages.update(id, entity).catch((e) => console.warn('Gagal update paket ke backend:', e))
+      else api.packages.create(entity).catch((e) => console.warn('Gagal simpan paket ke backend:', e))
     }
     if (kind === 'schedule') {
       const eventTime = value('eventTime') || undefined
@@ -314,6 +394,8 @@ function App() {
       }
       scheduleCollision = store.schedules.find((entry) => entry.id !== id && hasScheduleCollision(entry, entity))
       setStore((current) => ({ ...current, schedules: item ? current.schedules.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.schedules] }))
+      if (item) api.schedules.update(id, entity).catch((e) => console.warn('Gagal update jadwal ke backend:', e))
+      else api.schedules.create(entity, true).catch((e) => console.warn('Gagal simpan jadwal ke backend:', e))
     }
     if (kind === 'gallery') {
       const entity: GalleryItem = {
@@ -321,6 +403,8 @@ function App() {
         imageUrl: value('imageUrl'), description: value('description'),
       }
       setStore((current) => ({ ...current, gallery: item ? current.gallery.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.gallery] }))
+      if (item) api.gallery.update(id, entity).catch((e) => console.warn('Gagal update galeri ke backend:', e))
+      else api.gallery.create(entity).catch((e) => console.warn('Gagal simpan galeri ke backend:', e))
     }
     if (kind === 'certificate') {
       const image = value('image') || value('imageUrl')
@@ -336,6 +420,8 @@ function App() {
           ? current.certificates.map((entry) => (entry.id === id ? entity : entry))
           : [entity, ...current.certificates],
       }))
+      if (item) api.certificates.update(id, entity).catch((e) => console.warn('Gagal update sertifikat ke backend:', e))
+      else api.certificates.create(entity).catch((e) => console.warn('Gagal simpan sertifikat ke backend:', e))
       setNotice(item ? 'Sertifikat berhasil diperbarui.' : 'Sertifikat baru berhasil ditambahkan.')
     }
     if (kind === 'faq') {
@@ -350,6 +436,8 @@ function App() {
           ? current.faqs.map((entry) => (entry.id === id ? entity : entry))
           : [entity, ...current.faqs],
       }))
+      if (item) api.faqs.update(id, entity).catch((e) => console.warn('Gagal update FAQ ke backend:', e))
+      else api.faqs.create(entity).catch((e) => console.warn('Gagal simpan FAQ ke backend:', e))
       setNotice(item ? 'FAQ berhasil diperbarui.' : 'FAQ baru berhasil ditambahkan.')
     }
     if (kind === 'category') {
@@ -363,6 +451,8 @@ function App() {
         ...current,
         categories: item ? current.categories.map((c) => c.id === id ? entity : c) : [...current.categories, entity],
       }))
+      if (item) api.categories.update(id, entity).catch((e) => console.warn('Gagal update kategori ke backend:', e))
+      else api.categories.create(entity).catch((e) => console.warn('Gagal simpan kategori ke backend:', e))
       setNotice(item ? 'Kategori berhasil diperbarui.' : 'Kategori baru berhasil ditambahkan.')
     }
 
@@ -380,6 +470,11 @@ function App() {
       message: `Yakin ingin menghapus ${labels[collection]} "${name}"?`,
       onConfirm: () => {
         setStore((current) => ({ ...current, [collection]: (current[collection] as any[]).filter((entry) => entry.id !== id) }))
+        if (collection === 'packages') api.packages.delete(id).catch((e) => console.warn('Gagal hapus paket di backend:', e))
+        if (collection === 'schedules') api.schedules.delete(id).catch((e) => console.warn('Gagal hapus jadwal di backend:', e))
+        if (collection === 'gallery') api.gallery.delete(id).catch((e) => console.warn('Gagal hapus galeri di backend:', e))
+        if (collection === 'certificates') api.certificates.delete(id).catch((e) => console.warn('Gagal hapus sertifikat di backend:', e))
+        if (collection === 'faqs') api.faqs.delete(id).catch((e) => console.warn('Gagal hapus FAQ di backend:', e))
         setNotice('Data berhasil dihapus.')
       },
     })
@@ -388,7 +483,8 @@ function App() {
   function saveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    const phone = String(form.get('phone') ?? '').replace(/\D/g, '')
+    const rawPhone = String(form.get('phone') ?? '')
+    const phone = normalizePhone(rawPhone)
     const username = String(form.get('username') ?? '').trim()
     const password = String(form.get('password') ?? '')
     const facebook = String(form.get('facebook') ?? '').trim() || initialStore.profile.facebook
@@ -399,7 +495,7 @@ function App() {
     const tiktokUrl = String(form.get('tiktokUrl') ?? '').trim() || 'https://www.tiktok.com/@desyana.s'
     const mapsUrl = String(form.get('mapsUrl') ?? '').trim() || initialStore.profile.mapsUrl || 'https://maps.app.goo.gl/1mqYn88NWe9zq8AV9'
 
-    if (!/^62\d{8,13}$/.test(phone)) return setNotice('Nomor WhatsApp harus berformat 62, contoh 628123456789.')
+    if (!/^62\d{8,13}$/.test(phone)) return setNotice('Nomor WhatsApp harus valid, contoh: 082135221177 atau 6282135221177.')
     if (!username || password.length < 6) return setNotice('Username wajib diisi dan password minimal 6 karakter.')
     setStore((current) => ({
       ...current,
@@ -418,6 +514,21 @@ function App() {
       },
       credentials: { username, password },
     }))
+    api.profile.update({
+      name: store.profile.name,
+      tag: store.profile.tag,
+      phone,
+      address: String(form.get('address') ?? '').trim(),
+      mapsUrl,
+      openingHours: String(form.get('openingHours') ?? '').trim(),
+      facebook,
+      facebookUrl,
+      instagram,
+      instagramUrl,
+      tiktok,
+      tiktokUrl,
+    }).catch((e) => console.warn('Gagal update profil ke backend:', e))
+    api.auth.updateCredentials(username, password).catch((e) => console.warn('Gagal update kredensial admin ke backend:', e))
     setNotice('Pengaturan akun berhasil diperbarui.')
   }
 
@@ -427,12 +538,13 @@ function App() {
       message: `Yakin ingin menghapus kategori "${category.name}"?`,
       onConfirm: () => {
         setStore((current) => ({ ...current, categories: current.categories.filter((entry) => entry.id !== category.id) }))
+        api.categories.delete(category.id).catch((e) => console.warn('Gagal hapus kategori di backend:', e))
         setNotice('Kategori berhasil dihapus.')
       },
     })
   }
 
-  function submitBooking(event: FormEvent<HTMLFormElement>) {
+  async function submitBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!bookingPackage) return
     const form = new FormData(event.currentTarget)
@@ -454,7 +566,14 @@ function App() {
     const bookingTimestamp = new Date(`${date}T${time}:00`).getTime()
     const minAllowedTimestamp = Date.now() + 24 * 60 * 60 * 1000 - 60000
     if (isNaN(bookingTimestamp) || bookingTimestamp < minAllowedTimestamp) {
-      setNotice('Reservasi wajib dilakukan minimal H-1 (+24 jam dari sekarang).')
+      setNotice('Pemesanan ditolak: Jadwal booking wajib dilakukan minimal H-1 (24 jam dari sekarang).')
+      return
+    }
+
+    // Pengecekan jadwal bentrok di klien
+    const colliding = findScheduleCollision({ eventDate: date, eventTime: time }, store.schedules)
+    if (colliding) {
+      setNotice(`Pemesanan ditolak: Jadwal pada tanggal ${formatDate(date)} pukul ${time} WIB sudah terisi (${colliding.packageName}). Silakan pilih waktu lain agar tidak bentrok.`)
       return
     }
 
@@ -462,6 +581,17 @@ function App() {
       id: makeId('booking'), clientName, whatsapp: phone, packageName: bookingPackage.name,
       eventDate: date, eventTime: time, session: sessionForTime(time), location: '', notes: '', status: 'Menunggu Konfirmasi',
     }
+
+    try {
+      await api.schedules.create(booking)
+    } catch (err: any) {
+      console.warn('Gagal simpan booking ke backend:', err)
+      if (err.status === 409 || err.status === 422 || err.message?.toLowerCase().includes('bentrok')) {
+        setNotice(err.message || 'Pemesanan ditolak oleh sistem karena jadwal bentrok.')
+        return
+      }
+    }
+
     setStore((current) => ({ ...current, schedules: [booking, ...current.schedules] }))
     const message = [
       `Halo Admin ${store.profile.name}, saya ingin melakukan reservasi dan konfirmasi jadwal layanan.`,
@@ -490,6 +620,7 @@ function App() {
   }
 
   function logout() {
+    api.auth.logout()
     setPage('public')
     setActiveTab('Katalog')
     navigatePublic('/')
@@ -663,6 +794,15 @@ function App() {
               <Search className="mx-auto mb-3 text-rose-300" />
               <p className="font-semibold text-slate-700">Paket belum ditemukan</p>
               <p className="mt-1 text-sm text-slate-500">Coba kata kunci atau kategori lainnya.</p>
+              {(search || selectedCategory !== 'Semua') && (
+                <button
+                  type="button"
+                  onClick={() => { setSearch(''); setSelectedCategory('Semua'); }}
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-1.5 text-xs font-bold text-rose-700 transition hover:bg-rose-100 shadow-xs"
+                >
+                  <X size={14} /> Reset Pencarian & Kategori
+                </button>
+              )}
             </div>
           )}
 
@@ -703,12 +843,23 @@ function App() {
       )}
 
       {publicRoute === '404' && (
-        <NotFoundSection onNavigate={navigatePublic} />
+        <NotFoundSection
+          onNavigate={navigatePublic}
+          phone={store.profile.phone}
+          salonName={store.profile.name}
+        />
       )}
 
     </main>
     <PublicFooter store={store} onNavigate={navigatePublic} />
-    {bookingPackage && <BookingModal item={bookingPackage} onClose={() => setBookingPackage(null)} onSubmit={submitBooking} />}
+    {bookingPackage && (
+      <BookingModal
+        item={bookingPackage}
+        schedules={store.schedules}
+        onClose={() => setBookingPackage(null)}
+        onSubmit={submitBooking}
+      />
+    )}
     {viewingCert && (
       <ModalFrame onClose={() => setViewingCert(null)}>
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
@@ -726,10 +877,23 @@ function App() {
   </div>
 }
 
-function NotFoundSection({ onNavigate }: { onNavigate: (route: PublicRoute) => void }) {
+function NotFoundSection({
+  onNavigate,
+  phone,
+  salonName,
+}: {
+  onNavigate: (route: PublicRoute) => void
+  phone: string
+  salonName: string
+}) {
+  const currentPath = typeof window !== 'undefined' ? window.location.pathname : ''
+
   return (
-    <section className="flex min-h-[calc(100vh-160px)] items-center justify-center px-5 py-20">
+    <section className="flex min-h-[calc(100vh-160px)] items-center justify-center px-5 py-16 sm:py-24">
       <div className="mx-auto max-w-lg text-center">
+        <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-3xl bg-rose-50 text-rose-500 shadow-inner">
+          <HelpCircle size={42} strokeWidth={1.8} />
+        </div>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3.5 py-1 text-xs font-bold uppercase tracking-wider text-rose-600">
           404 • Halaman Tidak Ditemukan
         </span>
@@ -737,7 +901,12 @@ function NotFoundSection({ onNavigate }: { onNavigate: (route: PublicRoute) => v
           Halaman yang kamu cari belum tersedia
         </h1>
         <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base">
-          Tautan yang kamu tuju mungkin salah ketik atau telah dipindahkan. Silakan kembali ke beranda atau telusuri katalog layanan kami.
+          {currentPath && currentPath !== '/' ? (
+            <>Tautan <code className="rounded bg-rose-50 px-1.5 py-0.5 font-mono text-xs text-rose-700 font-semibold">{currentPath}</code> mungkin salah ketik atau telah dipindahkan.</>
+          ) : (
+            'Tautan yang kamu tuju mungkin salah ketik atau telah dipindahkan.'
+          )}{' '}
+          Silakan kembali ke beranda atau telusuri katalog layanan kami.
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <button
@@ -754,6 +923,14 @@ function NotFoundSection({ onNavigate }: { onNavigate: (route: PublicRoute) => v
           >
             <Sparkles size={16} /> Lihat Katalog Layanan
           </button>
+          <a
+            href={whatsappConsultationLink(phone, salonName)}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-700 transition hover:bg-slate-50 shadow-xs"
+          >
+            <MessageCircle size={16} className="text-emerald-600" /> Bantuan WhatsApp
+          </a>
         </div>
       </div>
     </section>
@@ -1314,6 +1491,7 @@ function CustomPinkDatePicker({
   onChange,
   isOpen,
   onToggle,
+  schedules,
 }: {
   label: string
   name: string
@@ -1322,6 +1500,7 @@ function CustomPinkDatePicker({
   onChange: (val: string) => void
   isOpen: boolean
   onToggle: (open: boolean) => void
+  schedules?: Schedule[]
 }) {
   const initialDate = value || minDate
   const [viewYear, setViewYear] = useState(() => Number(initialDate.slice(0, 4)) || new Date().getFullYear())
@@ -1365,6 +1544,17 @@ function CustomPinkDatePicker({
 
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
   const firstDay = new Date(viewYear, viewMonth, 1).getDay()
+
+  const schedulesOnThisDate = useMemo(() => {
+    if (!schedules?.length) return {}
+    const map: Record<string, { count: number; hasFullDay: boolean }> = {}
+    for (const s of schedules) {
+      if (!map[s.eventDate]) map[s.eventDate] = { count: 0, hasFullDay: false }
+      map[s.eventDate].count++
+      if (s.session === 'Full Day') map[s.eventDate].hasFullDay = true
+    }
+    return map
+  }, [schedules])
 
   const days = useMemo(() => {
     const list: Array<{ day: number; dateStr: string; isPast: boolean; isSelected: boolean }> = []
@@ -1437,27 +1627,65 @@ function CustomPinkDatePicker({
             {Array.from({ length: firstDay }).map((_, i) => (
               <span key={`empty-${i}`} className="h-7 w-7" />
             ))}
-            {days.map(({ day, dateStr, isPast, isSelected }) => (
-              <button
-                key={dateStr}
-                type="button"
-                disabled={isPast}
-                onClick={() => {
-                  onChange(dateStr)
-                  onToggle(false)
-                }}
-                className={`mx-auto flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold transition ${
-                  isSelected
-                    ? 'bg-rose-500 text-white font-bold shadow-xs'
-                    : isPast
-                    ? 'text-slate-300 cursor-not-allowed'
-                    : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
-                }`}
-              >
-                {day}
-              </button>
-            ))}
+            {days.map(({ day, dateStr, isPast, isSelected }) => {
+              const info = schedulesOnThisDate[dateStr]
+              const hasBooking = Boolean(info && info.count > 0)
+              const hasFullDay = Boolean(info && info.hasFullDay)
+              const isDisabled = isPast || hasFullDay
+
+              return (
+                <button
+                  key={dateStr}
+                  type="button"
+                  disabled={isDisabled}
+                  onClick={() => {
+                    onChange(dateStr)
+                    onToggle(false)
+                  }}
+                  title={
+                    hasFullDay
+                      ? 'Jadwal Penuh (Full Day)'
+                      : hasBooking
+                      ? `${info.count} booking pada tanggal ini`
+                      : undefined
+                  }
+                  className={`mx-auto flex h-7 w-7 flex-col items-center justify-center rounded-lg text-xs font-semibold relative transition ${
+                    isSelected
+                      ? 'bg-rose-500 text-white font-bold shadow-xs'
+                      : hasFullDay
+                      ? 'bg-rose-50 text-rose-300 cursor-not-allowed line-through'
+                      : isPast
+                      ? 'text-slate-300 cursor-not-allowed'
+                      : hasBooking
+                      ? 'text-slate-800 bg-amber-50 hover:bg-rose-50 hover:text-rose-600'
+                      : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
+                  }`}
+                >
+                  <span className="leading-none">{day}</span>
+                  {hasFullDay ? (
+                    <span className="h-1 w-1 rounded-full bg-rose-400 mt-0.5" />
+                  ) : hasBooking ? (
+                    <span
+                      className={`h-1 w-1 rounded-full mt-0.5 ${
+                        isSelected ? 'bg-white' : 'bg-amber-500'
+                      }`}
+                    />
+                  ) : null}
+                </button>
+              )
+            })}
           </div>
+
+          {schedules && schedules.length > 0 && (
+            <div className="mt-2.5 flex items-center justify-center gap-3 border-t border-rose-100 pt-2 text-[10px] text-slate-500">
+              <span className="flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500 inline-block" /> Ada booking
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-rose-400 inline-block" /> Penuh
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1471,6 +1699,7 @@ function CustomPinkTimePicker({
   onChange,
   isOpen,
   onToggle,
+  bookedTimes = [],
 }: {
   label: string
   name: string
@@ -1478,6 +1707,7 @@ function CustomPinkTimePicker({
   onChange: (val: string) => void
   isOpen: boolean
   onToggle: (open: boolean) => void
+  bookedTimes?: string[]
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -1541,18 +1771,26 @@ function CustomPinkTimePicker({
               <div className="max-h-32 overflow-y-auto space-y-1 rounded-xl border border-rose-100/80 bg-rose-50/20 p-1 pr-0.5">
                 {BOOKING_HOURS.map((h) => {
                   const isSelected = h === currentHour
+                  const isHourBooked = bookedTimes.some((t) => t.startsWith(`${h}:`))
                   return (
                     <button
                       key={h}
                       type="button"
                       onClick={() => onChange(`${h}:${currentMinute}`)}
-                      className={`w-full rounded-lg py-1 text-xs font-semibold transition ${
+                      className={`w-full rounded-lg py-1 px-1.5 text-xs font-semibold flex items-center justify-between transition ${
                         isSelected
                           ? 'bg-rose-500 text-white font-bold shadow-xs'
+                          : isHourBooked
+                          ? 'bg-rose-50 text-rose-700 hover:bg-rose-100'
                           : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
                       }`}
                     >
-                      {h}
+                      <span>{h}</span>
+                      {isHourBooked && (
+                        <span className={`text-[9px] font-bold ${isSelected ? 'text-rose-100' : 'text-rose-600'}`}>
+                          Terisi
+                        </span>
+                      )}
                     </button>
                   )
                 })}
@@ -1566,24 +1804,38 @@ function CustomPinkTimePicker({
               <div className="max-h-32 overflow-y-auto space-y-1 rounded-xl border border-rose-100/80 bg-rose-50/20 p-1 pr-0.5">
                 {minutesList.map((m) => {
                   const isSelected = m === currentMinute
+                  const isSlotBooked = bookedTimes.includes(`${currentHour}:${m}`)
                   return (
                     <button
                       key={m}
                       type="button"
                       onClick={() => onChange(`${currentHour}:${m}`)}
-                      className={`w-full rounded-lg py-1 text-xs font-semibold transition ${
+                      className={`w-full rounded-lg py-1 px-1.5 text-xs font-semibold flex items-center justify-between transition ${
                         isSelected
                           ? 'bg-rose-500 text-white font-bold shadow-xs'
+                          : isSlotBooked
+                          ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
                           : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
                       }`}
                     >
-                      {m}
+                      <span>{m}</span>
+                      {isSlotBooked && (
+                        <span className={`text-[9px] font-bold ${isSelected ? 'text-rose-100' : 'text-rose-600'}`}>
+                          Bentrok
+                        </span>
+                      )}
                     </button>
                   )
                 })}
               </div>
             </div>
           </div>
+
+          {bookedTimes.length > 0 && (
+            <p className="mt-2 rounded-lg bg-amber-50/80 p-1 text-center text-[10px] font-medium text-amber-700">
+              Waktu bertanda <strong className="text-rose-600">Terisi / Bentrok</strong> sudah dipesan.
+            </p>
+          )}
 
           <button
             type="button"
@@ -1598,7 +1850,17 @@ function CustomPinkTimePicker({
   )
 }
 
-function BookingModal({ item, onClose, onSubmit }: { item: Package; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+function BookingModal({
+  item,
+  schedules,
+  onClose,
+  onSubmit,
+}: {
+  item: Package
+  schedules: Schedule[]
+  onClose: () => void
+  onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void> | void
+}) {
   const minDateTime = useMemo(() => {
     const d = new Date(Date.now() + 24 * 60 * 60 * 1000)
     return {
@@ -1635,8 +1897,25 @@ function BookingModal({ item, onClose, onSubmit }: { item: Package; onClose: () 
     validateDateTime(date, newTime)
   }
 
+  // Cek bentrok secara real-time
+  const collidingSchedule = useMemo(() => {
+    if (!date || !time) return null
+    return findScheduleCollision({ eventDate: date, eventTime: time }, schedules)
+  }, [date, time, schedules])
+
+  const bookedTimesOnDate = useMemo(() => {
+    return schedules
+      .filter((s) => s.eventDate === date)
+      .map((s) => s.eventTime)
+      .filter(Boolean) as string[]
+  }, [date, schedules])
+
+  const isFullDayBooked = useMemo(() => {
+    return schedules.some((s) => s.eventDate === date && s.session === 'Full Day')
+  }, [date, schedules])
+
   function handleFormSubmit(e: FormEvent<HTMLFormElement>) {
-    if (!validateDateTime(date, time)) {
+    if (!validateDateTime(date, time) || collidingSchedule) {
       e.preventDefault()
       return
     }
@@ -1710,7 +1989,8 @@ function BookingModal({ item, onClose, onSubmit }: { item: Package; onClose: () 
               name="phone"
               type="tel"
               inputMode="tel"
-              pattern="[+]?[0-9() -]{9,18}"
+              maxLength={18}
+              onInput={(e) => { e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+\-]/g, '') }}
               autoComplete="tel"
               className="field block h-10 w-full rounded-xl border border-rose-200 bg-white px-3 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 focus:outline-none transition"
               placeholder="08xxxxxxxxxx"
@@ -1725,6 +2005,7 @@ function BookingModal({ item, onClose, onSubmit }: { item: Package; onClose: () 
             onChange={handleDateChange}
             isOpen={openPicker === 'date'}
             onToggle={(open) => setOpenPicker(open ? 'date' : null)}
+            schedules={schedules}
           />
 
           <CustomPinkTimePicker
@@ -1734,20 +2015,55 @@ function BookingModal({ item, onClose, onSubmit }: { item: Package; onClose: () 
             onChange={handleTimeChange}
             isOpen={openPicker === 'time'}
             onToggle={(open) => setOpenPicker(open ? 'time' : null)}
+            bookedTimes={bookedTimesOnDate}
           />
         </div>
 
-        {timeError && (
-          <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700">
-            {timeError}
-          </p>
+        {/* Real-time Status Banner: Validasi H-1, Bentrok, atau Tersedia */}
+        {timeError ? (
+          <div role="alert" className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
+            <AlertCircle size={16} className="shrink-0 text-rose-600" />
+            <span>{timeError}</span>
+          </div>
+        ) : collidingSchedule ? (
+          <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50/95 p-3 text-xs text-rose-800">
+            <AlertCircle size={16} className="shrink-0 text-rose-600 mt-0.5" />
+            <div className="space-y-0.5">
+              <p className="font-bold text-rose-900">Jadwal Bentrok / Sudah Terisi</p>
+              <p className="text-rose-700">
+                {isFullDayBooked
+                  ? `Tanggal ${formatDate(date)} sudah terisi pesanan seharian penuh (Full Day). Silakan pilih tanggal lain.`
+                  : `Tanggal ${formatDate(date)} pukul ${time} WIB sudah terisi untuk ${collidingSchedule.packageName}. Silakan pilih waktu atau tanggal alternatif agar tidak bentrok.`}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-800">
+            <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
+            <span>
+              Jadwal <strong>{formatDate(date)}</strong> pukul <strong>{time} WIB</strong> siap dipesan.
+            </span>
+          </div>
         )}
 
         <button
           type="submit"
-          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs sm:text-sm font-bold text-white transition hover:bg-emerald-700 shadow-xs"
+          disabled={Boolean(collidingSchedule || timeError)}
+          className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition shadow-xs ${
+            collidingSchedule || timeError
+              ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
+              : 'bg-emerald-600 text-white hover:bg-emerald-700'
+          }`}
         >
-          <MessageCircle size={16} /> Lanjutkan & konfirmasi via WA
+          {collidingSchedule ? (
+            <>
+              <AlertCircle size={16} /> Jadwal Bentrok — Silakan Pilih Waktu Lain
+            </>
+          ) : (
+            <>
+              <MessageCircle size={16} /> Lanjutkan & konfirmasi via WA
+            </>
+          )}
         </button>
       </form>
     </ModalFrame>
@@ -1759,10 +2075,18 @@ function LoginPage({ store, onOwnerLogin }: { store: SalonStore; onOwnerLogin: (
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (username.trim() === store.credentials.username && password === store.credentials.password) onOwnerLogin()
-    else setError('Username atau password belum sesuai.')
+    try {
+      await api.auth.login(username.trim(), password)
+      onOwnerLogin()
+    } catch {
+      if (username.trim() === store.credentials.username && password === store.credentials.password) {
+        onOwnerLogin()
+      } else {
+        setError('Username atau password belum sesuai.')
+      }
+    }
   }
 
   return <main className="flex min-h-screen items-center justify-center bg-rose-50/50 px-5 py-10">
@@ -2491,9 +2815,18 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
   const [historyMonth, setHistoryMonth] = useState('Semua Bulan')
   const [historyYear, setHistoryYear] = useState('Semua Tahun')
   const [search, setSearch] = useState('')
+  const [sortBy, setSortBy] = useState<'eventDate' | 'clientName' | 'status'>('eventDate')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const [currentPage, setCurrentPage] = useState(1)
   const [historyPage, setHistoryPage] = useState(1)
+
+  // Prioritas urutan status: Lunas -> Menunggu DP -> Terkonfirmasi -> Menunggu Konfirmasi
+  const STATUS_PRIORITY: Record<string, number> = {
+    'Lunas': 1,
+    'Menunggu DP': 2,
+    'Terkonfirmasi': 3,
+    'Menunggu Konfirmasi': 4,
+  }
 
   // Ekstrak daftar tahun yang tersedia dari jadwal
   const availableYears = useMemo(() => {
@@ -2530,10 +2863,34 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
       )
     }
     return [...list].sort((a, b) => {
+      if (sortBy === 'eventDate') {
+        const dateA = `${a.eventDate || ''}T${a.eventTime || '00:00'}`
+        const dateB = `${b.eventDate || ''}T${b.eventTime || '00:00'}`
+        const cmp = dateA.localeCompare(dateB)
+        if (cmp !== 0) {
+          return sortOrder === 'asc' ? cmp : -cmp
+        }
+        return a.clientName.localeCompare(b.clientName, 'id', { sensitivity: 'base' })
+      }
+      if (sortBy === 'status') {
+        const pA = STATUS_PRIORITY[a.status] ?? 99
+        const pB = STATUS_PRIORITY[b.status] ?? 99
+        if (pA !== pB) {
+          return sortOrder === 'asc' ? pA - pB : pB - pA
+        }
+        const dateA = `${a.eventDate || ''}T${a.eventTime || '00:00'}`
+        const dateB = `${b.eventDate || ''}T${b.eventTime || '00:00'}`
+        return dateA.localeCompare(dateB)
+      }
       const cmp = a.clientName.localeCompare(b.clientName, 'id', { sensitivity: 'base' })
-      return sortOrder === 'asc' ? cmp : -cmp
+      if (cmp !== 0) {
+        return sortOrder === 'asc' ? cmp : -cmp
+      }
+      const dateA = `${a.eventDate || ''}T${a.eventTime || '00:00'}`
+      const dateB = `${b.eventDate || ''}T${b.eventTime || '00:00'}`
+      return dateA.localeCompare(dateB)
     })
-  }, [store.schedules, selectedMonth, selectedYear, search, sortOrder])
+  }, [store.schedules, selectedMonth, selectedYear, search, sortBy, sortOrder])
 
   const totalItems = filteredAndSorted.length
   const totalPages = Math.ceil(totalItems / 6) || 1
@@ -2907,17 +3264,59 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
                 <tr className="border-y border-slate-100 text-[11px] uppercase tracking-wider text-slate-500">
                   <th
                     className="py-3 pr-4 font-semibold cursor-pointer select-none hover:text-rose-600"
-                    onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
-                    title="Klik untuk mengubah urutan"
+                    onClick={() => {
+                      if (sortBy === 'clientName') {
+                        setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc')
+                      } else {
+                        setSortBy('clientName')
+                        setSortOrder('asc')
+                      }
+                      setCurrentPage(1)
+                    }}
+                    title="Klik untuk mengurutkan berdasarkan nama pelanggan (A-Z / Z-A)"
                   >
                     <div className="flex items-center gap-1.5">
                       <span>NAMA PELANGGAN</span>
-                      <ChevronsUpDown size={14} className={sortOrder === 'asc' ? 'text-rose-600' : 'text-slate-400'} />
+                      <ChevronsUpDown size={14} className={sortBy === 'clientName' ? 'text-rose-600' : 'text-slate-400'} />
                     </div>
                   </th>
-                  <th className="px-4 py-3 font-semibold">Pelaksanaan</th>
+                  <th
+                    className="px-4 py-3 font-semibold cursor-pointer select-none hover:text-rose-600"
+                    onClick={() => {
+                      if (sortBy === 'eventDate') {
+                        setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc')
+                      } else {
+                        setSortBy('eventDate')
+                        setSortOrder('asc')
+                      }
+                      setCurrentPage(1)
+                    }}
+                    title="Klik untuk mengurutkan berdasarkan tanggal pelaksanaan (terdekat / terjauh)"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>PELAKSANAAN</span>
+                      <ChevronsUpDown size={14} className={sortBy === 'eventDate' ? 'text-rose-600' : 'text-slate-400'} />
+                    </div>
+                  </th>
                   <th className="px-4 py-3 font-semibold">Paket</th>
-                  <th className="px-4 py-3 font-semibold">Status</th>
+                  <th
+                    className="px-4 py-3 font-semibold cursor-pointer select-none hover:text-rose-600"
+                    onClick={() => {
+                      if (sortBy === 'status') {
+                        setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc')
+                      } else {
+                        setSortBy('status')
+                        setSortOrder('asc')
+                      }
+                      setCurrentPage(1)
+                    }}
+                    title="Klik untuk mengurutkan status (Lunas, Menunggu DP, Terkonfirmasi, Menunggu Konfirmasi)"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>STATUS</span>
+                      <ChevronsUpDown size={14} className={sortBy === 'status' ? 'text-rose-600' : 'text-slate-400'} />
+                    </div>
+                  </th>
                   <th className="py-3 pl-4 text-center font-semibold">Aksi</th>
                 </tr>
               </thead>
@@ -2979,7 +3378,7 @@ function ScheduleDetailsModal({ schedule, collisions, onClose, onEdit }: { sched
       <div><p className="text-xs font-semibold text-slate-500">Status</p><div className="mt-2"><StatusBadge status={schedule.status} /></div></div>
       <div><p className="text-xs font-semibold text-slate-500">Paket</p><p className="mt-1 font-bold text-slate-900">{schedule.packageName}</p></div>
       <div><p className="text-xs font-semibold text-slate-500">Lokasi</p><p className="mt-1 font-semibold text-slate-800">{schedule.location || 'Belum diisi'}</p></div>
-      {schedule.whatsapp && <div className="sm:col-span-2"><p className="text-xs font-semibold text-slate-500">WhatsApp</p><a className="mt-1 inline-flex font-semibold text-emerald-700 hover:underline" href={`https://wa.me/${schedule.whatsapp}`} target="_blank" rel="noreferrer">+{schedule.whatsapp}</a></div>}
+      {schedule.whatsapp && <div className="sm:col-span-2"><p className="text-xs font-semibold text-slate-500">WhatsApp</p><a className="mt-1 inline-flex font-semibold text-emerald-700 hover:underline" href={whatsappLink(schedule.whatsapp)} target="_blank" rel="noreferrer">+{normalizePhone(schedule.whatsapp)}</a></div>}
       <div className="sm:col-span-2"><p className="text-xs font-semibold text-slate-500">Catatan</p><p className="mt-1 whitespace-pre-wrap font-medium text-slate-800">{schedule.notes || 'Tidak ada catatan.'}</p></div>
     </div>
     <div className="mt-5 flex justify-end"><button type="button" onClick={onEdit} className="btn-primary"><Edit3 size={16} />Edit jadwal</button></div>
@@ -3369,7 +3768,7 @@ function SettingsManager({ store, onSave, onLogout }: { store: SalonStore; onSav
     <form onSubmit={onSave} className="grid gap-x-5 gap-y-4 md:grid-cols-2">
       <div><label className="label" htmlFor="studio-name">Nama salon</label><input id="studio-name" className="field bg-slate-50" value={store.profile.name} readOnly /></div>
       <div><label className="label" htmlFor="studio-tag">Tagline</label><input id="studio-tag" className="field bg-slate-50" value={store.profile.tag} readOnly /></div>
-      <div><label className="label" htmlFor="studio-phone">Nomor WhatsApp tujuan</label><input required id="studio-phone" name="phone" defaultValue={store.profile.phone} className="field" /><p className="mt-1 text-[11px] text-slate-500">Format internasional tanpa +, contoh 628123456789.</p></div>
+      <div><label className="label" htmlFor="studio-phone">Nomor WhatsApp tujuan</label><input required id="studio-phone" name="phone" type="tel" inputMode="tel" maxLength={18} defaultValue={store.profile.phone} onInput={(e) => { e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+\-]/g, '') }} className="field" placeholder="Contoh: 082135221177 atau 6282135221177" /><p className="mt-1 text-[11px] text-slate-500">Hanya angka, simbol + dan - (otomatis dirapikan untuk link chat WhatsApp).</p></div>
       <div><label className="label" htmlFor="studio-hours">Jam operasional</label><input id="studio-hours" name="openingHours" defaultValue={store.profile.openingHours} className="field" /></div>
       
       {/* Media Sosial Studio */}
@@ -3451,6 +3850,18 @@ function EntityModal({ editor, store, onClose, onSave }: {
   const [selectedFileName, setSelectedFileName] = useState('')
   const [imageError, setImageError] = useState('')
 
+  const [adminSchDate, setAdminSchDate] = useState(scheduleItem?.eventDate ?? '')
+  const [adminSchTime, setAdminSchTime] = useState(scheduleItem?.eventTime ?? '')
+
+  const adminCollision = useMemo(() => {
+    if (kind !== 'schedule' || !adminSchDate) return null
+    return findScheduleCollision(
+      { eventDate: adminSchDate, eventTime: adminSchTime },
+      store.schedules,
+      scheduleItem?.id
+    )
+  }, [kind, adminSchDate, adminSchTime, store.schedules, scheduleItem?.id])
+
   const input = (label: string, name: string, value = '', props: Record<string, string> = {}) => <div><label className="label" htmlFor={`editor-${name}`}>{label}</label><input id={`editor-${name}`} name={name} defaultValue={value} className="field" {...props} /></div>
   const select = (label: string, name: string, options: readonly string[], selected = '') => (
     <SearchableSelect
@@ -3488,7 +3899,20 @@ function EntityModal({ editor, store, onClose, onSave }: {
     {kind === 'schedule' && <>
       {!scheduleItem && <>
         {input('Nama klien *', 'clientName', '', { required: 'true', placeholder: 'Nama lengkap' })}
-        {input('Nomor WhatsApp', 'whatsapp', '', { type: 'tel', placeholder: '628xxxxxxxxxx' })}
+        <div>
+          <label className="label" htmlFor="editor-whatsapp">Nomor WhatsApp</label>
+          <input
+            id="editor-whatsapp"
+            name="whatsapp"
+            type="tel"
+            inputMode="tel"
+            onInput={(e) => { e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+\-]/g, '') }}
+            maxLength={18}
+            className="field"
+            placeholder="628xxxxxxxxxx"
+          />
+          <p className="mt-1 text-[11px] text-slate-400">Hanya angka, simbol + dan -</p>
+        </div>
         <SearchableSelect
           label="Pilih Paket *"
           name="packageName"
@@ -3496,7 +3920,23 @@ function EntityModal({ editor, store, onClose, onSave }: {
           searchPlaceholder="Cari paket layanan..."
         />
       </>}
-      {scheduleItem && (
+      {scheduleItem && <>
+        {input('Nama klien *', 'clientName', scheduleItem.clientName, { required: 'true', placeholder: 'Nama lengkap' })}
+        <div>
+          <label className="label" htmlFor="editor-whatsapp">Nomor WhatsApp</label>
+          <input
+            id="editor-whatsapp"
+            name="whatsapp"
+            type="tel"
+            inputMode="tel"
+            defaultValue={scheduleItem.whatsapp ?? ''}
+            onInput={(e) => { e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+\-]/g, '') }}
+            maxLength={18}
+            className="field"
+            placeholder="628xxxxxxxxxx"
+          />
+          <p className="mt-1 text-[11px] text-slate-400">Hanya angka, simbol + dan -</p>
+        </div>
         <SearchableSelect
           label="Paket Layanan *"
           name="packageName"
@@ -3504,9 +3944,41 @@ function EntityModal({ editor, store, onClose, onSave }: {
           defaultValue={scheduleItem.packageName}
           searchPlaceholder="Cari paket layanan..."
         />
+      </>}
+      <div>
+        <label className="label" htmlFor="editor-eventDate">Tanggal acara *</label>
+        <input
+          id="editor-eventDate"
+          name="eventDate"
+          type="date"
+          required
+          value={adminSchDate}
+          onChange={(e) => setAdminSchDate(e.target.value)}
+          className="field"
+        />
+      </div>
+      <div>
+        <label className="label" htmlFor="editor-eventTime">Waktu acara (WIB)</label>
+        <input
+          id="editor-eventTime"
+          name="eventTime"
+          type="time"
+          value={adminSchTime}
+          onChange={(e) => setAdminSchTime(e.target.value)}
+          className="field"
+        />
+      </div>
+      {adminCollision && (
+        <div className="sm:col-span-2 rounded-xl border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-900 flex items-start gap-2">
+          <AlertCircle size={16} className="shrink-0 text-amber-600 mt-0.5" />
+          <div>
+            <p className="font-bold text-amber-950">Peringatan Jadwal Bentrok</p>
+            <p>
+              Tanggal {formatDate(adminSchDate)} {adminSchTime ? `pukul ${adminSchTime} WIB` : ''} bertabrakan dengan pesanan <strong>{adminCollision.clientName}</strong> ({adminCollision.packageName} - {adminCollision.session}).
+            </p>
+          </div>
+        </div>
       )}
-      {input('Tanggal acara *', 'eventDate', scheduleItem?.eventDate, { type: 'date', required: 'true' })}
-      {input('Waktu acara (WIB)', 'eventTime', scheduleItem?.eventTime, { type: 'time' })}
       {select('Status', 'status', scheduleStatuses, scheduleItem?.status)}
       {input('Lokasi rias', 'location', scheduleItem?.location, { placeholder: 'Gedung / alamat' })}
       {textarea('Catatan', 'notes', scheduleItem?.notes, 'Kebutuhan khusus...')}

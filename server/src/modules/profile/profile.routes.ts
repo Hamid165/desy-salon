@@ -23,6 +23,7 @@ profileRouter.get('/', async (req, res, next) => {
         tag: 'Beauty for your beautiful beginning',
         phone: '+62 821-3522-1177',
         address: 'Jl. Desa Pekuncen No.15, RT 02/RW 03, Pekuncen, Kec. Jatilawang, Banyumas',
+        maps_url: 'https://maps.app.goo.gl/1mqYn88NWe9zq8AV9',
         opening_hours: 'Senin–Minggu, 08.00–17.00 WIB',
       } as SalonProfile)
       return

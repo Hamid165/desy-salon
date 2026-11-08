@@ -69,6 +69,63 @@ authRouter.get('/me', requireAdmin, (req, res) => {
   })
 })
 
+// PUT /api/auth/credentials - Ganti username dan/atau password admin (Admin Dashboard)
+authRouter.put('/credentials', requireAdmin, async (req, res, next) => {
+  try {
+    const { username, password } = req.body
+
+    if (!username || typeof username !== 'string' || !username.trim()) {
+      res.status(400).json({ error: 'Username admin wajib diisi' })
+      return
+    }
+
+    if (!password || typeof password !== 'string' || password.length < 6) {
+      res.status(400).json({ error: 'Password baru minimal 6 karakter' })
+      return
+    }
+
+    const currentUsername = req.user?.username || env.ADMIN_DEFAULT_USER
+    const newUsername = username.trim()
+    const newHash = await bcrypt.hash(password, 10)
+
+    // Cari user saat ini di database
+    const { data: existingUser } = await supabase
+      .from('admin_users')
+      .select('id')
+      .eq('username', currentUsername)
+      .maybeSingle()
+
+    let dbError
+    if (existingUser) {
+      const resUpdate = await supabase
+        .from('admin_users')
+        .update({ username: newUsername, password_hash: newHash })
+        .eq('id', existingUser.id)
+      dbError = resUpdate.error
+    } else {
+      const resUpsert = await supabase
+        .from('admin_users')
+        .upsert({ username: newUsername, password_hash: newHash }, { onConflict: 'username' })
+      dbError = resUpsert.error
+    }
+
+    if (dbError) throw dbError
+
+    const newToken = generateToken({ username: newUsername, role: 'admin' })
+
+    res.json({
+      message: 'Kredensial login admin berhasil diperbarui!',
+      token: newToken,
+      user: {
+        username: newUsername,
+        role: 'admin',
+      },
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
 // POST /api/auth/change-password - Ganti password admin
 authRouter.post('/change-password', requireAdmin, async (req, res, next) => {
   try {

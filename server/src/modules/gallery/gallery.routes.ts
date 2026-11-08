@@ -109,12 +109,36 @@ galleryRouter.put('/:id', requireAdmin, async (req, res, next) => {
   }
 })
 
+// GET /api/gallery/:id - Ambil detail 1 foto portofolio
+galleryRouter.get('/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params
+    const { data, error } = await supabase
+      .from('gallery')
+      .select('*')
+      .eq('id', id)
+      .single()
+
+    if (error || !data) {
+      res.status(404).json({ status: 404, error: 'Item portofolio tidak ditemukan' })
+      return
+    }
+    res.json(data as GalleryItem)
+  } catch (err) {
+    next(err)
+  }
+})
+
 // DELETE /api/gallery/:id - Hapus item portofolio (Admin)
 galleryRouter.delete('/:id', requireAdmin, async (req, res, next) => {
   try {
     const { id } = req.params
-    const { error } = await supabase.from('gallery').delete().eq('id', id)
+    const { data, error } = await supabase.from('gallery').delete().eq('id', id).select()
     if (error) throw error
+    if (!data || data.length === 0) {
+      res.status(404).json({ status: 404, error: 'Portofolio tidak ditemukan' })
+      return
+    }
     res.json({ message: 'Portofolio berhasil dihapus', id })
   } catch (err) {
     next(err)

@@ -16,9 +16,10 @@ export const packageSchema = z.object({
   name: z.string().min(1, 'Nama paket wajib diisi').max(50, 'Nama paket maksimal 50 karakter'),
   category: z.string().min(1, 'Kategori paket wajib diisi'),
   price: z.number().positive('Harga harus lebih dari 0').max(100000000, 'Harga maksimal Rp 100.000.000'),
+  price_max: z.number().positive().max(100000000, 'Harga batas atas maksimal Rp 100.000.000').nullable().optional(),
   original_price: z.number().positive().max(100000000, 'Harga sebelum diskon maksimal Rp 100.000.000').nullable().optional(),
   badge: z.string().max(18, 'Badge promo maksimal 18 karakter').nullable().optional(),
-  image: z.string().url('URL gambar tidak valid'),
+  image: z.string().min(1, 'URL gambar paket wajib diisi'),
   description: z.string().min(1, 'Deskripsi wajib diisi').max(150, 'Deskripsi maksimal 150 karakter'),
   features: z.array(z.string().max(60, 'Tiap baris fitur maksimal 60 karakter')).max(8, 'Maksimal 8 baris fitur').default([]),
 })
@@ -45,7 +46,7 @@ export const gallerySchema = z.object({
   title: z.string().min(1, 'Judul portofolio wajib diisi').max(50, 'Judul portofolio maksimal 50 karakter'),
   event_type: z.enum(['Akad Nikah', 'Resepsi Adat', 'Wisuda & Pesta']),
   tag: z.string().min(1, 'Tag wajib diisi').max(20, 'Tag maksimal 20 karakter'),
-  image_url: z.string().url('URL gambar tidak valid'),
+  image_url: z.string().min(1, 'URL gambar portofolio wajib diisi'),
   description: z.string().max(150, 'Deskripsi maksimal 150 karakter').optional().default(''),
 })
 
@@ -54,6 +55,7 @@ export const profileSchema = z.object({
   tag: z.string().min(1, 'Tagline wajib diisi'),
   phone: z.string().min(1, 'Nomor telepon wajib diisi'),
   address: z.string().min(1, 'Alamat wajib diisi'),
+  maps_url: z.string().optional().nullable(),
   opening_hours: z.string().min(1, 'Jam buka wajib diisi'),
   facebook: z.string().optional().nullable(),
   facebook_url: z.string().optional().nullable(),
@@ -61,5 +63,18 @@ export const profileSchema = z.object({
   instagram_url: z.string().optional().nullable(),
   tiktok: z.string().optional().nullable(),
   tiktok_url: z.string().optional().nullable(),
+})
+
+export const certificateSchema = z.object({
+  id: z.string().optional(),
+  image_url: z.string().min(1, 'URL gambar sertifikat wajib diisi'),
+  title: z.string().max(100, 'Judul sertifikat maksimal 100 karakter').optional().nullable(),
+})
+
+export const faqSchema = z.object({
+  id: z.string().optional(),
+  category: z.string().min(1, 'Kategori FAQ wajib diisi'),
+  question: z.string().min(1, 'Pertanyaan wajib diisi').max(300, 'Pertanyaan maksimal 300 karakter'),
+  answer: z.string().min(1, 'Jawaban wajib diisi').max(2000, 'Jawaban maksimal 2000 karakter'),
 })
 

@@ -92,8 +92,12 @@ packageRouter.put('/:id', requireAdmin, async (req, res, next) => {
 packageRouter.delete('/:id', requireAdmin, async (req, res, next) => {
   try {
     const { id } = req.params
-    const { error } = await supabase.from('packages').delete().eq('id', id)
+    const { data, error } = await supabase.from('packages').delete().eq('id', id).select()
     if (error) throw error
+    if (!data || data.length === 0) {
+      res.status(404).json({ status: 404, error: 'Paket tidak ditemukan' })
+      return
+    }
     res.json({ message: 'Paket berhasil dihapus', id })
   } catch (err) {
     next(err)

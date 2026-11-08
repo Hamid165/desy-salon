@@ -1,5 +1,6 @@
 import express from 'express'
 import cors from 'cors'
+import path from 'path'
 import { env } from './config/env.js'
 import { errorHandler } from './middleware/errorHandler.js'
 import { authRouter } from './modules/auth/auth.routes.js'
@@ -8,6 +9,8 @@ import { packageRouter } from './modules/packages/package.routes.js'
 import { scheduleRouter } from './modules/schedules/schedule.routes.js'
 import { galleryRouter } from './modules/gallery/gallery.routes.js'
 import { profileRouter } from './modules/profile/profile.routes.js'
+import { certificateRouter } from './modules/certificates/certificate.routes.js'
+import { faqRouter } from './modules/faqs/faq.routes.js'
 
 const app = express()
 
@@ -35,6 +38,14 @@ app.use(
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true, limit: '10mb' }))
 
+// Favicon handler
+app.get('/favicon.ico', (req, res) => {
+  const faviconPath = path.resolve(process.cwd(), '../public/favicon.ico')
+  res.sendFile(faviconPath, (err) => {
+    if (err) res.status(204).end()
+  })
+})
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({
@@ -52,10 +63,16 @@ app.use('/api/packages', packageRouter)
 app.use('/api/schedules', scheduleRouter)
 app.use('/api/gallery', galleryRouter)
 app.use('/api/profile', profileRouter)
+app.use('/api/certificates', certificateRouter)
+app.use('/api/faqs', faqRouter)
 
-// 404 Handler
+// 404 Handler untuk route/endpoint yang tidak terdaftar
 app.use((req, res) => {
-  res.status(404).json({ error: `Route tidak ditemukan: ${req.method} ${req.originalUrl}` })
+  res.status(404).json({
+    status: 404,
+    error: 'Endpoint tidak ditemukan',
+    message: `Permintaan ${req.method} ke '${req.originalUrl}' tidak terdaftar pada server.`,
+  })
 })
 
 // Global Error Handler

@@ -10,6 +10,7 @@ export interface Package {
   name: string
   category: string
   price: number
+  price_max?: number | null
   original_price?: number | null
   badge?: string | null
   image: string
@@ -48,6 +49,7 @@ export interface SalonProfile {
   tag: string
   phone: string
   address: string
+  maps_url?: string | null
   opening_hours: string
   facebook?: string | null
   facebook_url?: string | null
@@ -56,6 +58,21 @@ export interface SalonProfile {
   tiktok?: string | null
   tiktok_url?: string | null
   updated_at?: string
+}
+
+export interface Certificate {
+  id: string
+  image_url: string
+  title?: string | null
+  created_at?: string
+}
+
+export interface FaqItem {
+  id: string
+  category: string
+  question: string
+  answer: string
+  created_at?: string
 }
 
 export interface AdminUser {

@@ -1,4 +1,4 @@
-import type { Category, GalleryItem, Package, SalonProfile, Schedule } from '../types'
+import type { Category, Certificate, FaqItem, GalleryItem, Package, SalonProfile, Schedule } from '../types'
 
 const API_BASE = '/api'
 const TOKEN_KEY = 'desy_salon_admin_jwt'
@@ -38,9 +38,13 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       const errData = await response.json()
       errorMessage = errData.error || errData.message || errorMessage
     } catch {
-      // ignore
+      if (response.status === 404) {
+        errorMessage = 'Data atau rute yang diminta tidak ditemukan di server (404).'
+      }
     }
-    throw new Error(errorMessage)
+    const error = new Error(errorMessage)
+    ;(error as any).status = response.status
+    throw error
   }
 
   return response.json() as Promise<T>
@@ -56,6 +60,7 @@ function toFrontendPackage(b: any): Package {
     name: b.name,
     category: b.category,
     price: Number(b.price),
+    priceMax: b.price_max ? Number(b.price_max) : undefined,
     originalPrice: b.original_price ? Number(b.original_price) : undefined,
     badge: b.badge || undefined,
     image: b.image,
@@ -70,6 +75,7 @@ function toBackendPackage(f: Partial<Package>): any {
     name: f.name,
     category: f.category,
     price: f.price,
+    price_max: f.priceMax || null,
     original_price: f.originalPrice || null,
     badge: f.badge || null,
     image: f.image,
@@ -136,6 +142,7 @@ function toFrontendProfile(b: any): SalonProfile {
     tag: b.tag || 'Beauty for your beautiful beginning',
     phone: b.phone || '',
     address: b.address || '',
+    mapsUrl: b.maps_url || undefined,
     openingHours: b.opening_hours || '',
     facebook: b.facebook || undefined,
     facebookUrl: b.facebook_url || undefined,
@@ -152,6 +159,7 @@ function toBackendProfile(f: Partial<SalonProfile>): any {
     tag: f.tag,
     phone: f.phone,
     address: f.address,
+    maps_url: f.mapsUrl || null,
     opening_hours: f.openingHours,
     facebook: f.facebook || null,
     facebook_url: f.facebookUrl || null,
@@ -159,6 +167,40 @@ function toBackendProfile(f: Partial<SalonProfile>): any {
     instagram_url: f.instagramUrl || null,
     tiktok: f.tiktok || null,
     tiktok_url: f.tiktokUrl || null,
+  }
+}
+
+function toFrontendCertificate(b: any): Certificate {
+  return {
+    id: b.id,
+    imageUrl: b.image_url,
+    title: b.title || undefined,
+  }
+}
+
+function toBackendCertificate(f: Partial<Certificate>): any {
+  return {
+    id: f.id,
+    image_url: f.imageUrl,
+    title: f.title || null,
+  }
+}
+
+function toFrontendFaq(b: any): FaqItem {
+  return {
+    id: b.id,
+    category: b.category,
+    question: b.question,
+    answer: b.answer,
+  }
+}
+
+function toBackendFaq(f: Partial<FaqItem>): any {
+  return {
+    id: f.id,
+    category: f.category,
+    question: f.question,
+    answer: f.answer,
   }
 }
 
@@ -174,6 +216,16 @@ export const api = {
         body: JSON.stringify({ username, password }),
       })
       setAuthToken(res.token)
+      return res
+    },
+    async updateCredentials(username: string, password: string) {
+      const res = await request<{ message: string; token: string; user: { username: string; role: string } }>('/auth/credentials', {
+        method: 'PUT',
+        body: JSON.stringify({ username, password }),
+      })
+      if (res.token) {
+        setAuthToken(res.token)
+      }
       return res
     },
     async me() {
@@ -331,6 +383,65 @@ export const api = {
         body: JSON.stringify(payload),
       })
       return toFrontendProfile(res)
+    },
+  },
+
+  certificates: {
+    async list(): Promise<Certificate[]> {
+      const res = await request<any[]>('/certificates')
+      return res.map(toFrontendCertificate)
+    },
+    async create(cert: Certificate): Promise<Certificate> {
+      const payload = toBackendCertificate(cert)
+      const res = await request<any>('/certificates', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      return toFrontendCertificate(res)
+    },
+    async update(id: string, cert: Certificate): Promise<Certificate> {
+      const payload = toBackendCertificate(cert)
+      const res = await request<any>(`/certificates/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      })
+      return toFrontendCertificate(res)
+    },
+    async delete(id: string): Promise<{ message: string; id: string }> {
+      return request<{ message: string; id: string }>(`/certificates/${id}`, {
+        method: 'DELETE',
+      })
+    },
+  },
+
+  faqs: {
+    async list(category?: string, search?: string): Promise<FaqItem[]> {
+      const params = new URLSearchParams()
+      if (category && category !== 'Semua') params.append('category', category)
+      if (search) params.append('search', search)
+      const res = await request<any[]>(`/faqs?${params.toString()}`)
+      return res.map(toFrontendFaq)
+    },
+    async create(faq: FaqItem): Promise<FaqItem> {
+      const payload = toBackendFaq(faq)
+      const res = await request<any>('/faqs', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      return toFrontendFaq(res)
+    },
+    async update(id: string, faq: FaqItem): Promise<FaqItem> {
+      const payload = toBackendFaq(faq)
+      const res = await request<any>(`/faqs/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      })
+      return toFrontendFaq(res)
+    },
+    async delete(id: string): Promise<{ message: string; id: string }> {
+      return request<{ message: string; id: string }>(`/faqs/${id}`, {
+        method: 'DELETE',
+      })
     },
   },
 
