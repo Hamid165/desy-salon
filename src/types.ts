@@ -3,6 +3,7 @@ export interface Package {
   name: string
   category: string
   price: number
+  priceMax?: number
   originalPrice?: number
   badge?: string
   image: string
@@ -38,11 +39,25 @@ export interface GalleryItem {
   description: string
 }
 
+export interface Certificate {
+  id: string
+  imageUrl: string
+  title?: string
+}
+
+export interface FaqItem {
+  id: string
+  category: string
+  question: string
+  answer: string
+}
+
 export interface SalonProfile {
   name: string
   tag: string
   phone: string
   address: string
+  mapsUrl?: string
   openingHours: string
   facebook?: string
   facebookUrl?: string
@@ -57,6 +72,8 @@ export interface SalonStore {
   categories: Category[]
   schedules: Schedule[]
   gallery: GalleryItem[]
+  certificates: Certificate[]
+  faqs: FaqItem[]
   profile: SalonProfile
   credentials: { username: string; password: string }
 }
