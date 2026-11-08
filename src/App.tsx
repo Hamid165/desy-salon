@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
   ArrowRight, Award, CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Clock3,
-  Edit3, Facebook, Filter, Heart, HelpCircle, Image, Instagram, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle,
+  Edit3, Facebook, Filter, Heart, HelpCircle, Home, Image, Instagram, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle,
   Music2, PackageCheck, Plus, Search, Sparkles, Trash2, TrendingUp, User, X,
 } from 'lucide-react'
 import brandLogo from './assets/logo-desyana-v2.png'
@@ -30,7 +30,7 @@ const MONTH_NAMES = [
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
 ] as const
 const publicRoutes = ['/', '/paket', '/sertifikat'] as const
-type PublicRoute = typeof publicRoutes[number]
+type PublicRoute = typeof publicRoutes[number] | '404'
 type EditorKind = 'package' | 'schedule' | 'gallery' | 'category' | 'certificate' | 'faq'
 type AdminTab = 'Katalog' | 'Kategori' | 'Jadwal' | 'Portfolio' | 'Sertifikat' | 'FAQ' | 'Akun'
 
@@ -119,6 +119,28 @@ function whatsappLink(phone: string) {
   return `https://wa.me/${phone.replace(/\D/g, '')}`
 }
 
+function whatsappConsultationLink(phone: string, salonName = 'Desy Salon') {
+  const message = [
+    `Halo Admin ${salonName}, saya ingin berkonsultasi mengenai layanan dan jadwal salon/tata rias.`,
+    ``,
+    `Mohon informasi ketersediaan jadwal dan tahap konsultasi selanjutnya. Terima kasih.`,
+  ].join('\n')
+  return `${whatsappLink(phone)}?text=${encodeURIComponent(message)}`
+}
+
+function getLocalIsoDate(d: Date) {
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function getLocalIsoTime(d: Date) {
+  const hours = String(d.getHours()).padStart(2, '0')
+  const minutes = String(d.getMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
 function normalizePhone(phone: string) {
   const digits = phone.replace(/\D/g, '')
   return digits.startsWith('0') ? `62${digits.slice(1)}` : digits
@@ -180,7 +202,11 @@ const ITEMS_PER_PAGE = 6
 function App() {
   const [store, setStore] = useState<SalonStore>(readStore)
   const [page, setPage] = useState<'public' | 'login' | 'admin'>(() => window.location.pathname === '/admin' ? 'login' : 'public')
-  const [publicRoute, setPublicRoute] = useState<PublicRoute>(() => publicRoutes.includes(window.location.pathname as PublicRoute) ? window.location.pathname as PublicRoute : '/')
+  const [publicRoute, setPublicRoute] = useState<PublicRoute>(() => {
+    const path = window.location.pathname
+    if (path === '/admin') return '/'
+    return publicRoutes.includes(path as any) ? (path as PublicRoute) : '404'
+  })
   const [activeTab, setActiveTab] = useState<AdminTab>('Katalog')
   const [selectedCategory, setSelectedCategory] = useState('Semua')
   const [search, setSearch] = useState('')
@@ -193,7 +219,16 @@ function App() {
   const [confirmation, setConfirmation] = useState<{ message: string; onConfirm: () => void } | null>(null)
 
   useEffect(() => {
-    const syncRoute = () => setPublicRoute(publicRoutes.includes(window.location.pathname as PublicRoute) ? window.location.pathname as PublicRoute : '/')
+    const syncRoute = () => {
+      const path = window.location.pathname
+      if (path === '/admin') {
+        setPage('login')
+      } else if (publicRoutes.includes(path as any)) {
+        setPublicRoute(path as PublicRoute)
+      } else {
+        setPublicRoute('404')
+      }
+    }
     window.addEventListener('popstate', syncRoute)
     return () => window.removeEventListener('popstate', syncRoute)
   }, [])
@@ -204,7 +239,8 @@ function App() {
   }, [selectedCategory, search])
 
   function navigatePublic(route: PublicRoute) {
-    if (window.location.pathname !== route) window.history.pushState({}, '', route)
+    const target = route === '404' ? '/' : route
+    if (window.location.pathname !== target) window.history.pushState({}, '', target)
     setPublicRoute(route)
     setMenuOpen(false)
   }
@@ -415,6 +451,13 @@ function App() {
       return
     }
 
+    const bookingTimestamp = new Date(`${date}T${time}:00`).getTime()
+    const minAllowedTimestamp = Date.now() + 24 * 60 * 60 * 1000 - 60000
+    if (isNaN(bookingTimestamp) || bookingTimestamp < minAllowedTimestamp) {
+      setNotice('Reservasi wajib dilakukan minimal H-1 (+24 jam dari sekarang).')
+      return
+    }
+
     const booking: Schedule = {
       id: makeId('booking'), clientName, whatsapp: phone, packageName: bookingPackage.name,
       eventDate: date, eventTime: time, session: sessionForTime(time), location: '', notes: '', status: 'Menunggu Konfirmasi',
@@ -496,9 +539,9 @@ function App() {
             <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-rose-50/40" />
             <div className="relative mx-auto w-full max-w-7xl px-5 sm:px-8 lg:px-12">
               <div className="max-w-[620px] reveal">
-                <div className="mb-6 inline-flex flex-wrap items-center gap-2 rounded-full border border-rose-200 bg-white/85 px-3.5 py-2 text-xs font-semibold text-rose-700 shadow-sm backdrop-blur">
-                  <span className="rounded-full bg-rose-500 px-2.5 py-0.5 text-[11px] font-bold text-white shadow-xs">Sejak 1993</span>
-                  <span className="inline-flex items-center gap-1.5"><Sparkles size={14} className="text-amber-500" /> Membingkai hari paling berhargamu dengan riasan mempesona</span>
+                <div className="mb-6 inline-flex flex-wrap items-center gap-2 rounded-2xl sm:rounded-full border border-rose-200 bg-white/90 px-3.5 py-2 text-xs font-semibold text-rose-700 shadow-xs backdrop-blur">
+                  <span className="shrink-0 rounded-full bg-rose-500 px-2.5 py-0.5 text-[11px] font-bold text-white shadow-xs">Sejak 1993</span>
+                  <span className="inline-flex items-center gap-1.5 text-left leading-normal"><Sparkles size={14} className="shrink-0 text-amber-500" /> Membingkai hari paling berhargamu dengan riasan mempesona</span>
                 </div>
                 <h1 className="font-display text-5xl font-semibold leading-[1.1] tracking-tight text-slate-900 sm:text-6xl lg:text-[68px]">Hari istimewamu,<br /><span className="italic text-rose-600">secantik ceritamu.</span></h1>
                 <p className="mt-6 max-w-lg text-base leading-7 text-slate-600 sm:text-lg">Dipercaya sejak tahun 1993 menghadirkan tata rias terbaik. Riasan yang terasa seperti dirimu, dibuat dengan cinta untuk momen yang akan selalu kamu kenang.</p>
@@ -520,7 +563,7 @@ function App() {
           </section>
 
           {/* Section Tanya Jawab / FAQ (Tepat di Atas Portofolio) */}
-          <FaqSection faqs={store.faqs} />
+          <FaqSection faqs={store.faqs} phone={store.profile.phone} salonName={store.profile.name} />
 
           {/* Galeri Portofolio di Halaman Utama */}
           <section className="relative overflow-hidden bg-gradient-to-b from-white via-rose-50/20 to-white px-5 py-16 sm:px-8 sm:py-20 lg:px-12">
@@ -536,7 +579,19 @@ function App() {
           <SectionHeading eyebrow="Pilih yang paling kamu" title="Paket rias penuh cerita" description="Setiap detail kami siapkan dengan sepenuh hati, agar kamu bisa menikmati setiap momen." />
           <div className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex gap-2 overflow-x-auto pb-1">
-              {['Semua', ...store.categories.map((category) => category.name)].map((category) => <button key={category} onClick={() => setSelectedCategory(category)} className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition ${selectedCategory === category ? 'bg-rose-500 text-white shadow-sm' : 'border border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:text-rose-600'}`}>{category}</button>)}
+              {['Semua', ...store.categories.map((category) => category.name)].map((category) => (
+                <button
+                  key={category}
+                  onClick={() => setSelectedCategory(category)}
+                  className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                    selectedCategory === category
+                      ? 'bg-rose-500 text-white shadow-sm'
+                      : 'border border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:text-rose-600'
+                  }`}
+                >
+                  {category}
+                </button>
+              ))}
             </div>
             <label className="relative block w-full lg:max-w-xs"><Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} className="field rounded-full py-2.5 pl-10" placeholder="Cari paket atau layanan..." /></label>
           </div>
@@ -647,6 +702,10 @@ function App() {
         </section>
       )}
 
+      {publicRoute === '404' && (
+        <NotFoundSection onNavigate={navigatePublic} />
+      )}
+
     </main>
     <PublicFooter store={store} onNavigate={navigatePublic} />
     {bookingPackage && <BookingModal item={bookingPackage} onClose={() => setBookingPackage(null)} onSubmit={submitBooking} />}
@@ -667,6 +726,40 @@ function App() {
   </div>
 }
 
+function NotFoundSection({ onNavigate }: { onNavigate: (route: PublicRoute) => void }) {
+  return (
+    <section className="flex min-h-[calc(100vh-160px)] items-center justify-center px-5 py-20">
+      <div className="mx-auto max-w-lg text-center">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3.5 py-1 text-xs font-bold uppercase tracking-wider text-rose-600">
+          404 • Halaman Tidak Ditemukan
+        </span>
+        <h1 className="mt-5 font-display text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
+          Halaman yang kamu cari belum tersedia
+        </h1>
+        <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base">
+          Tautan yang kamu tuju mungkin salah ketik atau telah dipindahkan. Silakan kembali ke beranda atau telusuri katalog layanan kami.
+        </p>
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => onNavigate('/')}
+            className="btn-primary"
+          >
+            <Home size={16} /> Kembali ke Beranda
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate('/paket')}
+            className="btn-secondary"
+          >
+            <Sparkles size={16} /> Lihat Katalog Layanan
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavigate, phone }: {
   profileName: string
   activeRoute: PublicRoute
@@ -675,10 +768,10 @@ function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavig
   onNavigate: (route: PublicRoute) => void
   phone: string
 }) {
-  const links: { name: string; href: PublicRoute }[] = [
-    { name: 'Beranda', href: '/' },
-    { name: 'Katalog', href: '/paket' },
-    { name: 'Sertifikat', href: '/sertifikat' },
+  const links = [
+    { name: 'Beranda', href: '/' as PublicRoute, icon: Home },
+    { name: 'Katalog', href: '/paket' as PublicRoute, icon: Sparkles },
+    { name: 'Sertifikat', href: '/sertifikat' as PublicRoute, icon: Award },
   ]
   return <header className="sticky top-0 z-40 border-b border-rose-100/70 bg-white/85 backdrop-blur-xl">
     <div className="relative mx-auto flex h-20 sm:h-[84px] max-w-7xl items-center justify-between px-5 sm:px-8 lg:px-12">
@@ -688,20 +781,21 @@ function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavig
       </a>
 
       {/* Tengah: Navigasi Beranda & Katalog di posisi Center */}
-      <nav aria-label="Menu Utama" className="hidden md:flex md:absolute md:left-1/2 md:-translate-x-1/2 items-center gap-8">
-        {links.map(({ name, href }) => (
+      <nav aria-label="Menu Utama" className="hidden md:flex md:absolute md:left-1/2 md:-translate-x-1/2 items-center gap-7">
+        {links.map(({ name, href, icon: Icon }) => (
           <a
             key={name}
             href={href}
             onClick={(event) => { event.preventDefault(); onNavigate(href) }}
             aria-current={activeRoute === href ? 'page' : undefined}
-            className={`relative py-1 text-sm font-semibold transition ${
+            className={`relative inline-flex items-center gap-1.5 py-1 text-sm font-semibold transition ${
               activeRoute === href
                 ? 'text-rose-600 after:absolute after:-bottom-1 after:left-0 after:right-0 after:h-0.5 after:rounded-full after:bg-rose-500'
                 : 'text-slate-600 hover:text-rose-600'
             }`}
           >
-            {name}
+            <Icon size={16} />
+            <span>{name}</span>
           </a>
         ))}
       </nav>
@@ -709,7 +803,7 @@ function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavig
       {/* Sisi Kanan: Penyeimbang Navigasi & Tombol Kontak WhatsApp */}
       <div className="z-10 hidden md:flex items-center justify-end">
         <a
-          href={whatsappLink(phone)}
+          href={whatsappConsultationLink(phone, profileName)}
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50/70 px-3.5 py-1.5 text-xs font-bold text-rose-700 transition hover:bg-rose-100 shadow-xs"
@@ -731,19 +825,30 @@ function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavig
     {/* Menu Navigasi Mobile Drawer */}
     {menuOpen && (
       <nav className="border-t border-rose-100 bg-white px-5 py-3 md:hidden">
-        {links.map(({ name, href }) => (
+        {links.map(({ name, href, icon: Icon }) => (
           <a
             onClick={(event) => { event.preventDefault(); onNavigate(href) }}
             key={name}
             href={href}
             aria-current={activeRoute === href ? 'page' : undefined}
-            className={`block py-2.5 text-sm font-semibold text-center ${
+            className={`flex items-center justify-center gap-2 py-2.5 text-sm font-semibold ${
               activeRoute === href ? 'text-rose-600 font-bold bg-rose-50/60 rounded-lg' : 'text-slate-700'
             }`}
           >
-            {name}
+            <Icon size={16} />
+            <span>{name}</span>
           </a>
         ))}
+        <div className="pt-2">
+          <a
+            href={whatsappConsultationLink(phone, profileName)}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-center gap-2 rounded-xl bg-rose-500 py-2.5 text-sm font-bold text-white shadow-xs"
+          >
+            <MessageCircle size={16} /> Konsultasi via WhatsApp
+          </a>
+        </div>
       </nav>
     )}
   </header>
@@ -820,26 +925,24 @@ function PackageCard({ item, onBook }: { item: Package; onBook: () => void }) {
   )
 }
 
-function FaqSection({ faqs }: { faqs: FaqItem[] }) {
+function FaqSection({ faqs, phone, salonName }: { faqs: FaqItem[]; phone: string; salonName: string }) {
   const [openIds, setOpenIds] = useState<string[]>([])
   const [searchQuery, setSearchQuery] = useState('')
-  const [activeCategory, setActiveCategory] = useState<string>('Semua')
+  const [showAll, setShowAll] = useState(false)
 
-  const categories = useMemo(() => {
-    const cats = Array.from(new Set(faqs.map((f) => f.category).filter(Boolean)))
-    return ['Semua', ...cats]
-  }, [faqs])
+  const isSearching = searchQuery.trim().length > 0
 
   const filteredFaqs = useMemo(() => {
-    return faqs.filter((item) => {
-      const matchesCategory = activeCategory === 'Semua' || item.category === activeCategory
-      const query = searchQuery.toLowerCase().trim()
-      const matchesSearch = !query ||
+    const query = searchQuery.toLowerCase().trim()
+    if (!query) {
+      return showAll ? faqs : faqs.slice(0, 5)
+    }
+    return faqs.filter(
+      (item) =>
         item.question.toLowerCase().includes(query) ||
         item.answer.toLowerCase().includes(query)
-      return matchesCategory && matchesSearch
-    })
-  }, [faqs, activeCategory, searchQuery])
+    )
+  }, [faqs, searchQuery, showAll])
 
   function toggleFaq(id: string) {
     setOpenIds((prev) =>
@@ -881,60 +984,56 @@ function FaqSection({ faqs }: { faqs: FaqItem[] }) {
               </button>
             )}
           </div>
-
-          {/* Filter Kategori */}
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-            {categories.map((cat) => {
-              const isActive = activeCategory === cat
-              const label = cat === 'Tata Rias' ? 'Seputar Layanan Tata Rias' : cat === 'Layanan Salon' ? 'Tentang Salon' : cat
-              return (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setActiveCategory(cat)}
-                  className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${
-                    isActive
-                      ? 'bg-rose-500 text-white shadow-xs'
-                      : 'border border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:text-rose-600'
-                  }`}
-                >
-                  {label}
-                </button>
-              )
-            })}
-          </div>
         </div>
 
         <div className="space-y-3">
           {filteredFaqs.length > 0 ? (
-            filteredFaqs.map((faq) => {
-              const isOpen = openIds.includes(faq.id)
-              return (
-                <div
-                  key={faq.id}
-                  className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xs transition-all duration-200 hover:border-slate-300"
-                >
+            <>
+              {filteredFaqs.map((faq) => {
+                const isOpen = openIds.includes(faq.id)
+                return (
+                  <div
+                    key={faq.id}
+                    className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xs transition-all duration-200 hover:border-slate-300"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleFaq(faq.id)}
+                      className="flex w-full items-center justify-between gap-4 p-4 text-left font-bold text-slate-800 transition hover:text-rose-600 sm:p-5"
+                      aria-expanded={isOpen}
+                    >
+                      <span className="text-sm sm:text-base leading-snug">{faq.question}</span>
+                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition duration-200 ${
+                        isOpen ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-600'
+                      }`}>
+                        {isOpen ? <X size={15} /> : <Plus size={15} />}
+                      </span>
+                    </button>
+                    {isOpen && (
+                      <div className="border-t border-slate-100 px-4 pb-4 pt-0 text-xs sm:text-sm leading-6 text-slate-600 sm:px-5 sm:pb-5">
+                        <p className="pt-3">{faq.answer}</p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+
+              {!isSearching && faqs.length > 5 && (
+                <div className="pt-4 text-center">
                   <button
                     type="button"
-                    onClick={() => toggleFaq(faq.id)}
-                    className="flex w-full items-center justify-between gap-4 p-4 text-left font-bold text-slate-800 transition hover:text-rose-600 sm:p-5"
-                    aria-expanded={isOpen}
+                    onClick={() => setShowAll(!showAll)}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-white px-5 py-2 text-xs sm:text-sm font-semibold text-rose-600 shadow-2xs hover:bg-rose-50 hover:text-rose-700 transition"
                   >
-                    <span className="text-sm sm:text-base leading-snug">{faq.question}</span>
-                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition duration-200 ${
-                      isOpen ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-600'
-                    }`}>
-                      {isOpen ? <X size={15} /> : <Plus size={15} />}
-                    </span>
+                    {showAll ? (
+                      <>Tampilkan 5 Pertanyaan Saja <ChevronDown size={15} className="rotate-180" /></>
+                    ) : (
+                      <>Lihat Semua Pertanyaan ({faqs.length}) <ChevronDown size={15} /></>
+                    )}
                   </button>
-                  {isOpen && (
-                    <div className="border-t border-slate-100 px-4 pb-4 pt-0 text-xs sm:text-sm leading-6 text-slate-600 sm:px-5 sm:pb-5">
-                      <p className="pt-3">{faq.answer}</p>
-                    </div>
-                  )}
                 </div>
-              )
-            })
+              )}
+            </>
           ) : (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-xs text-slate-500">
               <p className="font-semibold text-slate-700 text-sm">Pertanyaan tidak ditemukan</p>
@@ -943,14 +1042,14 @@ function FaqSection({ faqs }: { faqs: FaqItem[] }) {
                 {searchQuery && (
                   <button
                     type="button"
-                    onClick={() => { setSearchQuery(''); setActiveCategory('Semua') }}
+                    onClick={() => setSearchQuery('')}
                     className="btn-secondary !text-xs !py-1.5 !px-3"
                   >
                     Reset Pencarian
                   </button>
                 )}
                 <a
-                  href="https://wa.me/6282135221177"
+                  href={whatsappConsultationLink(phone, salonName)}
                   target="_blank"
                   rel="noreferrer"
                   className="btn-primary !text-xs !py-1.5 !px-3"
@@ -1114,7 +1213,7 @@ function PublicFooter({ store, onNavigate }: { store: SalonStore; onNavigate: (r
       <div>
         <a href="/" onClick={(event) => { event.preventDefault(); onNavigate('/') }} className="inline-flex items-center"><img src={brandLogo} alt={store.profile.name} className="h-12 w-auto max-w-[220px] object-contain" /></a>
         <p className="mt-4 max-w-[230px] text-sm font-medium leading-6 text-slate-700">Riasan penuh rasa sejak 1993, untuk hari-hari yang penuh makna. Mari siapkan momen terbaikmu bersama kami.</p>
-        <a href={whatsappLink(store.profile.phone)} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-600"><MessageCircle size={16} /> Hubungi via WhatsApp</a>
+        <a href={whatsappConsultationLink(store.profile.phone, store.profile.name)} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-600"><MessageCircle size={16} /> Konsultasi via WhatsApp</a>
       </div>
       <div>
         <h3 className="mb-4 text-sm font-bold text-slate-900">Kunjungi studio</h3>
@@ -1197,56 +1296,462 @@ function PublicFooter({ store, onNavigate }: { store: SalonStore; onNavigate: (r
   </footer>
 }
 
+const BOOKING_HOURS = [
+  '06', '07', '08', '09', '10', '11', '12', '13',
+  '14', '15', '16', '17', '18', '19', '20', '21',
+] as const
+
+const BOOKING_MINUTES = [
+  '00', '05', '10', '15', '20', '25',
+  '30', '35', '40', '45', '50', '55',
+] as const
+
+function CustomPinkDatePicker({
+  label,
+  name,
+  value,
+  minDate,
+  onChange,
+  isOpen,
+  onToggle,
+}: {
+  label: string
+  name: string
+  value: string
+  minDate: string
+  onChange: (val: string) => void
+  isOpen: boolean
+  onToggle: (open: boolean) => void
+}) {
+  const initialDate = value || minDate
+  const [viewYear, setViewYear] = useState(() => Number(initialDate.slice(0, 4)) || new Date().getFullYear())
+  const [viewMonth, setViewMonth] = useState(() => (Number(initialDate.slice(5, 7)) || 1) - 1)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        onToggle(false)
+      }
+    }
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isOpen, onToggle])
+
+  const minYear = Number(minDate.slice(0, 4))
+  const minMonth = Number(minDate.slice(5, 7)) - 1
+  const canGoPrev = viewYear > minYear || (viewYear === minYear && viewMonth > minMonth)
+
+  function prevMonth() {
+    if (!canGoPrev) return
+    if (viewMonth === 0) {
+      setViewMonth(11)
+      setViewYear((y) => y - 1)
+    } else {
+      setViewMonth((m) => m - 1)
+    }
+  }
+
+  function nextMonth() {
+    if (viewMonth === 11) {
+      setViewMonth(0)
+      setViewYear((y) => y + 1)
+    } else {
+      setViewMonth((m) => m + 1)
+    }
+  }
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
+  const firstDay = new Date(viewYear, viewMonth, 1).getDay()
+
+  const days = useMemo(() => {
+    const list: Array<{ day: number; dateStr: string; isPast: boolean; isSelected: boolean }> = []
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+      list.push({
+        day: d,
+        dateStr,
+        isPast: dateStr < minDate,
+        isSelected: dateStr === value,
+      })
+    }
+    return list
+  }, [viewYear, viewMonth, daysInMonth, minDate, value])
+
+  return (
+    <div className="relative w-full min-w-0" ref={containerRef}>
+      <label className="mb-1 block text-xs font-bold text-slate-700" htmlFor={`date-btn-${name}`}>
+        {label}
+      </label>
+      <input type="hidden" name={name} value={value} />
+      <button
+        id={`date-btn-${name}`}
+        type="button"
+        onClick={() => onToggle(!isOpen)}
+        className="field flex h-10 w-full items-center justify-between rounded-xl border border-rose-200 bg-white px-3 text-left text-xs sm:text-sm transition focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+      >
+        <span className={value ? 'font-semibold text-slate-800' : 'text-slate-400'}>
+          {value ? formatDate(value) : 'Pilih tanggal acara...'}
+        </span>
+        <CalendarDays size={16} className="shrink-0 text-rose-500" />
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-full z-30 mt-2 w-full rounded-2xl border border-rose-200 bg-white p-3.5 shadow-xl ring-1 ring-black/5 animate-in fade-in zoom-in-95">
+          <div className="mb-2 flex items-center justify-between border-b border-rose-100 pb-2">
+            <button
+              type="button"
+              disabled={!canGoPrev}
+              onClick={prevMonth}
+              aria-label="Bulan sebelumnya"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-600 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-600"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span className="text-xs font-bold text-slate-800">
+              {MONTH_NAMES[viewMonth]} {viewYear}
+            </span>
+            <button
+              type="button"
+              onClick={nextMonth}
+              aria-label="Bulan berikutnya"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-600 transition hover:bg-rose-50 hover:text-rose-600"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+
+          <div className="mb-1.5 grid grid-cols-7 text-center text-[10px] font-bold text-slate-400">
+            <span>Min</span>
+            <span>Sen</span>
+            <span>Sel</span>
+            <span>Rab</span>
+            <span>Kam</span>
+            <span>Jum</span>
+            <span>Sab</span>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1 text-center">
+            {Array.from({ length: firstDay }).map((_, i) => (
+              <span key={`empty-${i}`} className="h-7 w-7" />
+            ))}
+            {days.map(({ day, dateStr, isPast, isSelected }) => (
+              <button
+                key={dateStr}
+                type="button"
+                disabled={isPast}
+                onClick={() => {
+                  onChange(dateStr)
+                  onToggle(false)
+                }}
+                className={`mx-auto flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold transition ${
+                  isSelected
+                    ? 'bg-rose-500 text-white font-bold shadow-xs'
+                    : isPast
+                    ? 'text-slate-300 cursor-not-allowed'
+                    : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
+                }`}
+              >
+                {day}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CustomPinkTimePicker({
+  label,
+  name,
+  value,
+  onChange,
+  isOpen,
+  onToggle,
+}: {
+  label: string
+  name: string
+  value: string
+  onChange: (val: string) => void
+  isOpen: boolean
+  onToggle: (open: boolean) => void
+}) {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const [rawHour, rawMinute] = (value || '09:00').split(':')
+  const currentHour = rawHour || '09'
+  const currentMinute = rawMinute || '00'
+
+  const minutesList = useMemo(() => {
+    if (currentMinute && !BOOKING_MINUTES.includes(currentMinute as any)) {
+      return [currentMinute, ...BOOKING_MINUTES].sort()
+    }
+    return BOOKING_MINUTES
+  }, [currentMinute])
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        onToggle(false)
+      }
+    }
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isOpen, onToggle])
+
+  return (
+    <div className="relative w-full min-w-0" ref={containerRef}>
+      <label className="mb-1 block text-xs font-bold text-slate-700" htmlFor={`time-btn-${name}`}>
+        {label}
+      </label>
+      <input type="hidden" name={name} value={value} />
+      <button
+        id={`time-btn-${name}`}
+        type="button"
+        onClick={() => onToggle(!isOpen)}
+        className="field flex h-10 w-full items-center justify-between rounded-xl border border-rose-200 bg-white px-3 text-left text-xs sm:text-sm transition focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+      >
+        <span className={value ? 'font-semibold text-slate-800' : 'text-slate-400'}>
+          {value ? `${value} WIB` : 'Pilih waktu acara...'}
+        </span>
+        <Clock3 size={16} className="shrink-0 text-rose-500" />
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-full z-30 mt-2 w-full rounded-2xl border border-rose-200 bg-white p-3.5 shadow-xl ring-1 ring-black/5 animate-in fade-in zoom-in-95">
+          <div className="mb-2.5 flex items-center justify-between border-b border-rose-100 pb-2">
+            <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-rose-600">
+              <Clock3 size={14} /> Waktu Acara
+            </span>
+            <span className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-600">
+              {currentHour}:{currentMinute} WIB
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-center">
+            <div>
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Jam
+              </span>
+              <div className="max-h-32 overflow-y-auto space-y-1 rounded-xl border border-rose-100/80 bg-rose-50/20 p-1 pr-0.5">
+                {BOOKING_HOURS.map((h) => {
+                  const isSelected = h === currentHour
+                  return (
+                    <button
+                      key={h}
+                      type="button"
+                      onClick={() => onChange(`${h}:${currentMinute}`)}
+                      className={`w-full rounded-lg py-1 text-xs font-semibold transition ${
+                        isSelected
+                          ? 'bg-rose-500 text-white font-bold shadow-xs'
+                          : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
+                      }`}
+                    >
+                      {h}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div>
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Menit
+              </span>
+              <div className="max-h-32 overflow-y-auto space-y-1 rounded-xl border border-rose-100/80 bg-rose-50/20 p-1 pr-0.5">
+                {minutesList.map((m) => {
+                  const isSelected = m === currentMinute
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => onChange(`${currentHour}:${m}`)}
+                      className={`w-full rounded-lg py-1 text-xs font-semibold transition ${
+                        isSelected
+                          ? 'bg-rose-500 text-white font-bold shadow-xs'
+                          : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => onToggle(false)}
+            className="mt-2.5 w-full rounded-xl bg-rose-500 py-1.5 text-xs font-bold text-white shadow-xs transition hover:bg-rose-600"
+          >
+            Pilih Jam Ini
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function BookingModal({ item, onClose, onSubmit }: { item: Package; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <ModalFrame onClose={onClose}>
-    <div className="mb-5 flex items-start justify-between">
-      <div>
-        <p className="text-xs font-bold uppercase tracking-widest text-rose-500">Form booking</p>
-        <h2 className="mt-1 font-display text-2xl font-semibold text-slate-900">Lengkapi detail reservasi</h2>
+  const minDateTime = useMemo(() => {
+    const d = new Date(Date.now() + 24 * 60 * 60 * 1000)
+    return {
+      date: getLocalIsoDate(d),
+      time: getLocalIsoTime(d),
+      timestamp: d.getTime(),
+    }
+  }, [])
+
+  const [date, setDate] = useState(minDateTime.date)
+  const [time, setTime] = useState(minDateTime.time)
+  const [timeError, setTimeError] = useState('')
+  const [openPicker, setOpenPicker] = useState<'date' | 'time' | null>(null)
+
+  function validateDateTime(selectedDate: string, selectedTime: string) {
+    if (!selectedDate || !selectedTime) return false
+    const ts = new Date(`${selectedDate}T${selectedTime}:00`).getTime()
+    const minTs = Date.now() + 24 * 60 * 60 * 1000 - 60000
+    if (isNaN(ts) || ts < minTs) {
+      setTimeError('Pemesanan wajib minimal H-1 (+24 jam dari sekarang).')
+      return false
+    }
+    setTimeError('')
+    return true
+  }
+
+  function handleDateChange(newDate: string) {
+    setDate(newDate)
+    validateDateTime(newDate, time)
+  }
+
+  function handleTimeChange(newTime: string) {
+    setTime(newTime)
+    validateDateTime(date, newTime)
+  }
+
+  function handleFormSubmit(e: FormEvent<HTMLFormElement>) {
+    if (!validateDateTime(date, time)) {
+      e.preventDefault()
+      return
+    }
+    onSubmit(e)
+  }
+
+  return (
+    <ModalFrame onClose={onClose} maxWidth="max-w-xl" contentPadding="p-5 sm:p-6" overflowClass="overflow-y-auto">
+      {/* Compact Header: Thumbnail Paket, Nama, Harga, Badge Min. H-1, dan Tombol Tutup */}
+      <div className="flex items-center justify-between gap-3 border-b border-rose-100 pb-3 mb-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <img
+            src={item.image}
+            alt={item.name}
+            className="h-11 w-11 sm:h-12 sm:w-12 shrink-0 rounded-xl object-cover ring-2 ring-rose-200/80 shadow-xs"
+          />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700">
+                Booking Reservasi
+              </span>
+              <span className="rounded-md border border-rose-200 bg-rose-50/70 px-1.5 py-0.2 text-[10px] font-semibold text-rose-700">
+                Min. H-1
+              </span>
+            </div>
+            <h3 className="truncate font-display text-sm sm:text-base font-bold text-slate-900 mt-0.5">
+              {item.name}
+            </h3>
+            <p className="text-xs font-semibold text-rose-600">
+              {item.category.toLowerCase().includes('perawatan')
+                ? `${rupiah(item.price)} / layanan`
+                : item.priceMax
+                ? `${rupiah(item.price)} – ${rupiah(item.priceMax)}`
+                : `Mulai ${rupiah(item.price)}`}
+            </p>
+          </div>
+        </div>
+        <button
+          aria-label="Tutup"
+          onClick={onClose}
+          className="shrink-0 rounded-xl border border-slate-200 bg-slate-50 p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition"
+        >
+          <X size={18} />
+        </button>
       </div>
-      <button aria-label="Tutup" onClick={onClose} className="rounded-xl border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-100">
-        <X size={19} />
-      </button>
-    </div>
-    <div className="mb-5 flex items-center gap-3 rounded-xl bg-rose-50 p-3">
-      <img src={item.image} alt="" className="h-14 w-14 rounded-lg object-cover" />
-      <div>
-        <p className="text-xs font-semibold text-slate-600">Paket pilihan</p>
-        <p className="font-bold text-slate-900">{item.name}</p>
-        <p className="text-xs font-semibold text-rose-600">
-          {item.category.toLowerCase().includes('perawatan')
-            ? `${rupiah(item.price)} / layanan`
-            : item.priceMax
-              ? `${rupiah(item.price)} – ${rupiah(item.priceMax)}`
-              : `Mulai ${rupiah(item.price)}`}
-        </p>
-      </div>
-    </div>
-    <form onSubmit={onSubmit} className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className="label" htmlFor="booking-name">Nama lengkap *</label>
-          <input required id="booking-name" name="clientName" autoComplete="name" className="field" placeholder="Nama yang bisa kami hubungi" />
+
+      <form onSubmit={handleFormSubmit} className="space-y-4">
+        {/* Responsive Grid: Lebar label & input 100% presisi dan seragam */}
+        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 transition-all duration-200 ${openPicker ? 'mb-60 sm:mb-56' : 'mb-0'}`}>
+          <div className="w-full min-w-0">
+            <label className="mb-1 block text-xs font-bold text-slate-700" htmlFor="booking-name">
+              Nama lengkap *
+            </label>
+            <input
+              required
+              id="booking-name"
+              name="clientName"
+              autoComplete="name"
+              className="field block h-10 w-full rounded-xl border border-rose-200 bg-white px-3 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 focus:outline-none transition"
+              placeholder="Nama pemesan"
+            />
+          </div>
+
+          <div className="w-full min-w-0">
+            <label className="mb-1 block text-xs font-bold text-slate-700" htmlFor="booking-phone">
+              Nomor WhatsApp *
+            </label>
+            <input
+              required
+              id="booking-phone"
+              name="phone"
+              type="tel"
+              inputMode="tel"
+              pattern="[+]?[0-9() -]{9,18}"
+              autoComplete="tel"
+              className="field block h-10 w-full rounded-xl border border-rose-200 bg-white px-3 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 focus:outline-none transition"
+              placeholder="08xxxxxxxxxx"
+            />
+          </div>
+
+          <CustomPinkDatePicker
+            label="Tanggal acara *"
+            name="date"
+            value={date}
+            minDate={minDateTime.date}
+            onChange={handleDateChange}
+            isOpen={openPicker === 'date'}
+            onToggle={(open) => setOpenPicker(open ? 'date' : null)}
+          />
+
+          <CustomPinkTimePicker
+            label="Waktu acara (WIB) *"
+            name="time"
+            value={time}
+            onChange={handleTimeChange}
+            isOpen={openPicker === 'time'}
+            onToggle={(open) => setOpenPicker(open ? 'time' : null)}
+          />
         </div>
-        <div>
-          <label className="label" htmlFor="booking-phone">Nomor WhatsApp *</label>
-          <input required id="booking-phone" name="phone" type="tel" inputMode="tel" pattern="[+]?[0-9() -]{9,18}" autoComplete="tel" className="field" placeholder="08xxxxxxxxxx" />
-        </div>
-        <div>
-          <label className="label" htmlFor="booking-date">Tanggal acara *</label>
-          <input required id="booking-date" name="date" type="date" min={new Date().toISOString().slice(0, 10)} className="field" />
-        </div>
-        <div>
-          <label className="label" htmlFor="booking-time">Waktu acara (WIB) *</label>
-          <input required id="booking-time" name="time" type="time" className="field" />
-          <p className="mt-1 text-[11px] text-slate-500">Waktu Indonesia Barat (WIB)</p>
-        </div>
-      </div>
-      <button type="submit" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-emerald-700 shadow-xs">
-        <MessageCircle size={17} /> Lanjutkan & konfirmasi via WA
-      </button>
-    </form>
-  </ModalFrame>
+
+        {timeError && (
+          <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700">
+            {timeError}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs sm:text-sm font-bold text-white transition hover:bg-emerald-700 shadow-xs"
+        >
+          <MessageCircle size={16} /> Lanjutkan & konfirmasi via WA
+        </button>
+      </form>
+    </ModalFrame>
+  )
 }
 
 function LoginPage({ store, onOwnerLogin }: { store: SalonStore; onOwnerLogin: () => void }) {
@@ -3050,13 +3555,25 @@ function EntityModal({ editor, store, onClose, onSave }: {
   </form></ModalFrame>
 }
 
-function ModalFrame({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+function ModalFrame({
+  children,
+  onClose,
+  maxWidth = 'max-w-xl',
+  contentPadding = 'p-4 sm:p-6',
+  overflowClass = 'overflow-y-auto',
+}: {
+  children: ReactNode
+  onClose: () => void
+  maxWidth?: string
+  contentPadding?: string
+  overflowClass?: string
+}) {
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose() }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
   }, [onClose])
-  return <div onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }} className="modal-backdrop fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/45 p-3 backdrop-blur-sm sm:p-4"><div role="dialog" aria-modal="true" className="my-auto max-h-[90dvh] w-full max-w-xl overflow-y-auto rounded-2xl border border-white/70 bg-white p-4 shadow-2xl sm:p-6">{children}</div></div>
+  return <div onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }} className="modal-backdrop fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/45 p-3 backdrop-blur-xs sm:p-4"><div role="dialog" aria-modal="true" className={`my-auto max-h-[92dvh] w-full ${maxWidth} ${overflowClass} rounded-2xl border border-rose-100/80 bg-white ${contentPadding} shadow-2xl`}>{children}</div></div>
 }
 
 function ConfirmationModal({ message, onCancel, onConfirm }: { message: string; onCancel: () => void; onConfirm: () => void }) {

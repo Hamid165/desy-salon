@@ -15,7 +15,7 @@
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; accent-color: #f43f5e; color-scheme: light; }
 body { min-width: 0; margin: 0; }
 body { font-weight: 500; line-height: 1.55; }
 button, input, textarea, select { font: inherit; }
@@ -42,6 +42,23 @@ button { cursor: pointer; }
 @layer components {
   .field {
     @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-rose-400 focus:ring-4 focus:ring-rose-100;
+  }
+  input[type="date"].field,
+  input[type="time"].field {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator,
+  input[type="time"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    filter: invert(32%) sepia(74%) saturate(3015%) hue-rotate(331deg) brightness(99%) contrast(95%);
+    opacity: 0.85;
+    transition: opacity 0.2s;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator:hover,
+  input[type="time"]::-webkit-calendar-picker-indicator:hover {
+    opacity: 1;
   }
   .label { @apply mb-1.5 block text-sm font-semibold text-slate-800; }
   .btn-primary { @apply inline-flex items-center justify-center gap-2 rounded-xl bg-rose-500 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-rose-600 disabled:cursor-not-allowed disabled:opacity-50; }
