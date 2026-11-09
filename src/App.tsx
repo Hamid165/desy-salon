@@ -2241,23 +2241,6 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
                   color="sky"
                 />
               </>
-            ) : activeTab === 'Kategori' ? (
-              <>
-                <StatCard
-                  title="Total Kategori"
-                  count={store.categories.length}
-                  detail="Jenis kategori layanan"
-                  icon={LayoutDashboard}
-                  color="rose"
-                />
-                <StatCard
-                  title="Total Paket"
-                  count={store.packages.length}
-                  detail="Paket terkait di katalog"
-                  icon={PackageCheck}
-                  color="sky"
-                />
-              </>
             ) : activeTab === 'Jadwal' ? (
               <>
                 <StatCard
