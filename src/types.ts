@@ -33,7 +33,8 @@ export interface Schedule {
 export interface GalleryItem {
   id: string
   title: string
-  eventType: 'Akad Nikah' | 'Resepsi Adat' | 'Wisuda & Pesta'
+  category: string
+  eventType?: string
   tag: string
   imageUrl: string
   description: string

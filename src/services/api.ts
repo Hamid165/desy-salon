@@ -118,6 +118,12 @@ function toFrontendGallery(b: any): GalleryItem {
   return {
     id: b.id,
     title: b.title,
+    category: b.category || (
+      b.event_type === 'Akad Nikah' ? 'Akad' :
+      b.event_type === 'Resepsi Adat' ? 'Resepsi' :
+      b.event_type === 'Wisuda & Pesta' ? 'Wisuda' :
+      (b.event_type || 'Akad')
+    ),
     eventType: b.event_type,
     tag: b.tag,
     imageUrl: b.image_url,
@@ -129,7 +135,8 @@ function toBackendGallery(f: Partial<GalleryItem>): any {
   return {
     id: f.id,
     title: f.title,
-    event_type: f.eventType,
+    category: f.category || f.eventType,
+    event_type: f.category || f.eventType,
     tag: f.tag,
     image_url: f.imageUrl,
     description: f.description || '',

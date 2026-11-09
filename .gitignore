@@ -34,3 +34,8 @@ lerna-debug.log*
 .DS_Store
 Thumbs.db
 
+# Test & Automation artifacts
+.playwright-mcp/
+.playright-mcp/
+
+

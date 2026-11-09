@@ -7,7 +7,6 @@ import {
 import brandLogo from './assets/logo-desyana-v2.png'
 import { initialStore } from './data'
 import type { Category, Certificate, FaqItem, GalleryItem, Package, SalonStore, Schedule } from './types'
-import { api } from './services/api'
 
 const STORE_KEY = 'desy-salon-store-v1'
 const legacyAddresses = [
@@ -25,7 +24,6 @@ const legacyFacebookUrls = [
   'https://facebook.com/desyana/',
 ]
 const scheduleStatuses = ['Menunggu Konfirmasi', 'Terkonfirmasi', 'Menunggu DP', 'Lunas'] as const
-const eventTypes = ['Akad Nikah', 'Resepsi Adat', 'Wisuda & Pesta'] as const
 const MONTH_NAMES = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
@@ -88,7 +86,16 @@ function readStore(): SalonStore {
       const faqs: FaqItem[] = (parsed.faqs && parsed.faqs.length >= initialStore.faqs.length)
         ? parsed.faqs
         : [...initialStore.faqs]
-      return { ...initialStore, ...parsed, packages, certificates, faqs, profile, credentials, schedules }
+      const gallery: GalleryItem[] = (parsed.gallery ?? initialStore.gallery).map((item) => ({
+        ...item,
+        category: item.category || (
+          item.eventType === 'Akad Nikah' ? 'Akad' :
+          item.eventType === 'Resepsi Adat' ? 'Resepsi' :
+          item.eventType === 'Wisuda & Pesta' ? 'Wisuda' :
+          (item.eventType || initialStore.categories[0]?.name || 'Akad')
+        ),
+      }))
+      return { ...initialStore, ...parsed, packages, certificates, faqs, profile, credentials, schedules, gallery }
     }
   } catch (error) {
     console.warn('Data salon lokal tidak dapat dibaca.', error)
@@ -116,16 +123,8 @@ function getBookingPrice(schedule: Schedule, packages: Package[]): number {
   return pkg ? pkg.price : 0
 }
 
-function normalizePhone(phone: string): string {
-  const digits = (phone || '').replace(/\D/g, '')
-  if (digits.startsWith('0')) return `62${digits.slice(1)}`
-  if (digits.startsWith('62')) return digits
-  return digits ? `62${digits}` : ''
-}
-
 function whatsappLink(phone: string) {
-  const clean = normalizePhone(phone)
-  return `https://wa.me/${clean}`
+  return `https://wa.me/${phone.replace(/\D/g, '')}`
 }
 
 function whatsappConsultationLink(phone: string, salonName = 'Desy Salon') {
@@ -148,6 +147,11 @@ function getLocalIsoTime(d: Date) {
   const hours = String(d.getHours()).padStart(2, '0')
   const minutes = String(d.getMinutes()).padStart(2, '0')
   return `${hours}:${minutes}`
+}
+
+function normalizePhone(phone: string) {
+  const digits = phone.replace(/\D/g, '')
+  return digits.startsWith('0') ? `62${digits.slice(1)}` : digits
 }
 
 function sessionForTime(value: string): Schedule['session'] {
@@ -253,64 +257,6 @@ function App() {
     return () => window.removeEventListener('popstate', syncRoute)
   }, [])
 
-  useEffect(() => {
-    if (page === 'admin') {
-      document.title = 'Studio Manager | Desy Salon'
-    } else if (page === 'login') {
-      document.title = 'Login Pengelola | Desy Salon'
-    } else if (publicRoute === '404') {
-      document.title = '404 - Halaman Tidak Ditemukan | Desy Salon'
-    } else if (publicRoute === '/paket') {
-      document.title = 'Katalog Layanan & Paket | Desy Salon'
-    } else if (publicRoute === '/sertifikat') {
-      document.title = 'Sertifikat Resmi | Desy Salon'
-    } else {
-      document.title = `${store.profile.name} - Tata Rias Pengantin & Beauty Salon`
-    }
-  }, [page, publicRoute, store.profile.name])
-
-  useEffect(() => {
-    async function loadBackendData() {
-      try {
-        const health = await api.health.check().catch(() => null)
-        if (health?.status === 'ok') {
-          const [categories, packages, schedules, gallery, profile, certificates, faqs] = await Promise.all([
-            api.categories.list().catch(() => null),
-            api.packages.list().catch(() => null),
-            api.schedules.list().catch(() => null),
-            api.gallery.list().catch(() => null),
-            api.profile.get().catch(() => null),
-            api.certificates.list().catch(() => null),
-            api.faqs.list().catch(() => null),
-          ])
-
-          setStore((current) => ({
-            ...current,
-            categories: categories && categories.length > 0 ? categories : current.categories,
-            packages: packages && packages.length > 0 ? packages : current.packages,
-            schedules: schedules && schedules.length > 0 ? schedules : current.schedules,
-            gallery: gallery && gallery.length > 0 ? gallery : current.gallery,
-            profile: profile ? { ...current.profile, ...profile } : current.profile,
-            certificates: certificates && certificates.length > 0 ? certificates : current.certificates,
-            faqs: faqs && faqs.length > 0 ? faqs : current.faqs,
-          }))
-
-          try {
-            const authCheck = await api.auth.me()
-            if (authCheck.authenticated && window.location.pathname === '/admin') {
-              setPage('admin')
-            }
-          } catch {
-            // ignore
-          }
-        }
-      } catch (err) {
-        console.warn('Backend offline, menggunakan data lokal:', err)
-      }
-    }
-    loadBackendData()
-  }, [])
-
   // Reset pagination when category or search changes
   useEffect(() => {
     setCurrentPage(1)
@@ -321,6 +267,7 @@ function App() {
     if (window.location.pathname !== target) window.history.pushState({}, '', target)
     setPublicRoute(route)
     setMenuOpen(false)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   useEffect(() => {
@@ -374,37 +321,37 @@ function App() {
         features: value('features').split('\n').map((feature) => feature.trim()).filter(Boolean),
       }
       setStore((current) => ({ ...current, packages: item ? current.packages.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.packages] }))
-      if (item) api.packages.update(id, entity).catch((e) => console.warn('Gagal update paket ke backend:', e))
-      else api.packages.create(entity).catch((e) => console.warn('Gagal simpan paket ke backend:', e))
     }
     if (kind === 'schedule') {
       const eventTime = value('eventTime') || undefined
       const previousSchedule = item as Schedule | undefined
       const entity: Schedule = {
         id,
-        clientName: previousSchedule?.clientName ?? value('clientName'),
-        packageName: previousSchedule?.packageName ?? value('packageName'),
-        eventDate: value('eventDate'),
+        clientName: value('clientName') || previousSchedule?.clientName || '',
+        packageName: value('packageName') || previousSchedule?.packageName || '',
+        eventDate: value('eventDate') || previousSchedule?.eventDate || '',
         eventTime,
-        whatsapp: previousSchedule?.whatsapp ?? (value('whatsapp') || undefined),
+        whatsapp: value('whatsapp') || previousSchedule?.whatsapp || undefined,
         session: eventTime ? sessionForTime(eventTime) : previousSchedule?.session ?? 'Full Day',
         location: value('location'),
         notes: value('notes'),
-        status: value('status') as Schedule['status'],
+        status: (value('status') as Schedule['status']) || previousSchedule?.status || 'Menunggu Konfirmasi',
       }
       scheduleCollision = store.schedules.find((entry) => entry.id !== id && hasScheduleCollision(entry, entity))
       setStore((current) => ({ ...current, schedules: item ? current.schedules.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.schedules] }))
-      if (item) api.schedules.update(id, entity).catch((e) => console.warn('Gagal update jadwal ke backend:', e))
-      else api.schedules.create(entity, true).catch((e) => console.warn('Gagal simpan jadwal ke backend:', e))
     }
     if (kind === 'gallery') {
+      const category = value('category') || store.categories[0]?.name || 'Akad'
       const entity: GalleryItem = {
-        id, title: value('title'), eventType: value('eventType') as GalleryItem['eventType'], tag: value('tag'),
-        imageUrl: value('imageUrl'), description: value('description'),
+        id,
+        title: value('title'),
+        category,
+        eventType: category,
+        tag: value('tag'),
+        imageUrl: value('imageUrl'),
+        description: value('description'),
       }
       setStore((current) => ({ ...current, gallery: item ? current.gallery.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.gallery] }))
-      if (item) api.gallery.update(id, entity).catch((e) => console.warn('Gagal update galeri ke backend:', e))
-      else api.gallery.create(entity).catch((e) => console.warn('Gagal simpan galeri ke backend:', e))
     }
     if (kind === 'certificate') {
       const image = value('image') || value('imageUrl')
@@ -420,8 +367,6 @@ function App() {
           ? current.certificates.map((entry) => (entry.id === id ? entity : entry))
           : [entity, ...current.certificates],
       }))
-      if (item) api.certificates.update(id, entity).catch((e) => console.warn('Gagal update sertifikat ke backend:', e))
-      else api.certificates.create(entity).catch((e) => console.warn('Gagal simpan sertifikat ke backend:', e))
       setNotice(item ? 'Sertifikat berhasil diperbarui.' : 'Sertifikat baru berhasil ditambahkan.')
     }
     if (kind === 'faq') {
@@ -436,8 +381,6 @@ function App() {
           ? current.faqs.map((entry) => (entry.id === id ? entity : entry))
           : [entity, ...current.faqs],
       }))
-      if (item) api.faqs.update(id, entity).catch((e) => console.warn('Gagal update FAQ ke backend:', e))
-      else api.faqs.create(entity).catch((e) => console.warn('Gagal simpan FAQ ke backend:', e))
       setNotice(item ? 'FAQ berhasil diperbarui.' : 'FAQ baru berhasil ditambahkan.')
     }
     if (kind === 'category') {
@@ -449,10 +392,8 @@ function App() {
       const entity: Category = { id, name, slug }
       setStore((current) => ({
         ...current,
-        categories: item ? current.categories.map((c) => c.id === id ? entity : c) : [...current.categories, entity],
+        categories: item ? current.categories.map((c) => c.id === id ? entity : c) : [entity, ...current.categories],
       }))
-      if (item) api.categories.update(id, entity).catch((e) => console.warn('Gagal update kategori ke backend:', e))
-      else api.categories.create(entity).catch((e) => console.warn('Gagal simpan kategori ke backend:', e))
       setNotice(item ? 'Kategori berhasil diperbarui.' : 'Kategori baru berhasil ditambahkan.')
     }
 
@@ -470,11 +411,6 @@ function App() {
       message: `Yakin ingin menghapus ${labels[collection]} "${name}"?`,
       onConfirm: () => {
         setStore((current) => ({ ...current, [collection]: (current[collection] as any[]).filter((entry) => entry.id !== id) }))
-        if (collection === 'packages') api.packages.delete(id).catch((e) => console.warn('Gagal hapus paket di backend:', e))
-        if (collection === 'schedules') api.schedules.delete(id).catch((e) => console.warn('Gagal hapus jadwal di backend:', e))
-        if (collection === 'gallery') api.gallery.delete(id).catch((e) => console.warn('Gagal hapus galeri di backend:', e))
-        if (collection === 'certificates') api.certificates.delete(id).catch((e) => console.warn('Gagal hapus sertifikat di backend:', e))
-        if (collection === 'faqs') api.faqs.delete(id).catch((e) => console.warn('Gagal hapus FAQ di backend:', e))
         setNotice('Data berhasil dihapus.')
       },
     })
@@ -483,8 +419,7 @@ function App() {
   function saveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    const rawPhone = String(form.get('phone') ?? '')
-    const phone = normalizePhone(rawPhone)
+    const phone = String(form.get('phone') ?? '').replace(/\D/g, '')
     const username = String(form.get('username') ?? '').trim()
     const password = String(form.get('password') ?? '')
     const facebook = String(form.get('facebook') ?? '').trim() || initialStore.profile.facebook
@@ -495,7 +430,7 @@ function App() {
     const tiktokUrl = String(form.get('tiktokUrl') ?? '').trim() || 'https://www.tiktok.com/@desyana.s'
     const mapsUrl = String(form.get('mapsUrl') ?? '').trim() || initialStore.profile.mapsUrl || 'https://maps.app.goo.gl/1mqYn88NWe9zq8AV9'
 
-    if (!/^62\d{8,13}$/.test(phone)) return setNotice('Nomor WhatsApp harus valid, contoh: 082135221177 atau 6282135221177.')
+    if (!/^62\d{8,13}$/.test(phone)) return setNotice('Nomor WhatsApp harus berformat 62, contoh 628123456789.')
     if (!username || password.length < 6) return setNotice('Username wajib diisi dan password minimal 6 karakter.')
     setStore((current) => ({
       ...current,
@@ -514,21 +449,6 @@ function App() {
       },
       credentials: { username, password },
     }))
-    api.profile.update({
-      name: store.profile.name,
-      tag: store.profile.tag,
-      phone,
-      address: String(form.get('address') ?? '').trim(),
-      mapsUrl,
-      openingHours: String(form.get('openingHours') ?? '').trim(),
-      facebook,
-      facebookUrl,
-      instagram,
-      instagramUrl,
-      tiktok,
-      tiktokUrl,
-    }).catch((e) => console.warn('Gagal update profil ke backend:', e))
-    api.auth.updateCredentials(username, password).catch((e) => console.warn('Gagal update kredensial admin ke backend:', e))
     setNotice('Pengaturan akun berhasil diperbarui.')
   }
 
@@ -538,13 +458,12 @@ function App() {
       message: `Yakin ingin menghapus kategori "${category.name}"?`,
       onConfirm: () => {
         setStore((current) => ({ ...current, categories: current.categories.filter((entry) => entry.id !== category.id) }))
-        api.categories.delete(category.id).catch((e) => console.warn('Gagal hapus kategori di backend:', e))
         setNotice('Kategori berhasil dihapus.')
       },
     })
   }
 
-  async function submitBooking(event: FormEvent<HTMLFormElement>) {
+  function submitBooking(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!bookingPackage) return
     const form = new FormData(event.currentTarget)
@@ -566,14 +485,7 @@ function App() {
     const bookingTimestamp = new Date(`${date}T${time}:00`).getTime()
     const minAllowedTimestamp = Date.now() + 24 * 60 * 60 * 1000 - 60000
     if (isNaN(bookingTimestamp) || bookingTimestamp < minAllowedTimestamp) {
-      setNotice('Pemesanan ditolak: Jadwal booking wajib dilakukan minimal H-1 (24 jam dari sekarang).')
-      return
-    }
-
-    // Pengecekan jadwal bentrok di klien
-    const colliding = findScheduleCollision({ eventDate: date, eventTime: time }, store.schedules)
-    if (colliding) {
-      setNotice(`Pemesanan ditolak: Jadwal pada tanggal ${formatDate(date)} pukul ${time} WIB sudah terisi (${colliding.packageName}). Silakan pilih waktu lain agar tidak bentrok.`)
+      setNotice('Reservasi wajib dilakukan minimal H-1 (+24 jam dari sekarang).')
       return
     }
 
@@ -581,17 +493,6 @@ function App() {
       id: makeId('booking'), clientName, whatsapp: phone, packageName: bookingPackage.name,
       eventDate: date, eventTime: time, session: sessionForTime(time), location: '', notes: '', status: 'Menunggu Konfirmasi',
     }
-
-    try {
-      await api.schedules.create(booking)
-    } catch (err: any) {
-      console.warn('Gagal simpan booking ke backend:', err)
-      if (err.status === 409 || err.status === 422 || err.message?.toLowerCase().includes('bentrok')) {
-        setNotice(err.message || 'Pemesanan ditolak oleh sistem karena jadwal bentrok.')
-        return
-      }
-    }
-
     setStore((current) => ({ ...current, schedules: [booking, ...current.schedules] }))
     const message = [
       `Halo Admin ${store.profile.name}, saya ingin melakukan reservasi dan konfirmasi jadwal layanan.`,
@@ -620,7 +521,6 @@ function App() {
   }
 
   function logout() {
-    api.auth.logout()
     setPage('public')
     setActiveTab('Katalog')
     navigatePublic('/')
@@ -670,15 +570,15 @@ function App() {
             <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-rose-50/40" />
             <div className="relative mx-auto w-full max-w-7xl px-5 sm:px-8 lg:px-12">
               <div className="max-w-[620px] reveal">
-                <div className="mb-6 inline-flex flex-wrap items-center gap-2 rounded-2xl sm:rounded-full border border-rose-200 bg-white/90 px-3.5 py-2 text-xs font-semibold text-rose-700 shadow-xs backdrop-blur">
-                  <span className="shrink-0 rounded-full bg-rose-500 px-2.5 py-0.5 text-[11px] font-bold text-white shadow-xs">Sejak 1993</span>
-                  <span className="inline-flex items-center gap-1.5 text-left leading-normal"><Sparkles size={14} className="shrink-0 text-amber-500" /> Membingkai hari paling berhargamu dengan riasan mempesona</span>
+                <div className="mb-6 inline-flex items-center gap-1.5 rounded-full border border-rose-200/80 bg-white/90 px-4 py-2 text-xs font-semibold text-rose-700 shadow-2xs backdrop-blur">
+                  <Sparkles size={14} className="shrink-0 text-amber-500" />
+                  <span>Membingkai hari paling berhargamu dengan riasan mempesona</span>
                 </div>
                 <h1 className="font-display text-5xl font-semibold leading-[1.1] tracking-tight text-slate-900 sm:text-6xl lg:text-[68px]">Hari istimewamu,<br /><span className="italic text-rose-600">secantik ceritamu.</span></h1>
-                <p className="mt-6 max-w-lg text-base leading-7 text-slate-600 sm:text-lg">Dipercaya sejak tahun 1993 menghadirkan tata rias terbaik. Riasan yang terasa seperti dirimu, dibuat dengan cinta untuk momen yang akan selalu kamu kenang.</p>
+                <p className="mt-6 max-w-lg text-base font-medium leading-7 text-slate-800 drop-shadow-[0_1px_2px_rgba(255,255,255,0.85)] sm:text-lg sm:leading-8">Dipercaya sejak tahun 1993 menghadirkan tata rias terbaik. Riasan yang terasa seperti dirimu, dibuat dengan cinta untuk momen yang akan selalu kamu kenang.</p>
                 <div className="mt-8 flex flex-wrap items-center gap-3">
-                  <a href="/paket" onClick={(event) => { event.preventDefault(); navigatePublic('/paket') }} className="btn-primary focus-ring">Temukan paket impian <ArrowRight size={17} /></a>
-                  <a href="/paket" onClick={(event) => { event.preventDefault(); navigatePublic('/paket') }} className="btn-secondary bg-white/80 backdrop-blur">Lihat katalog & karya</a>
+                  <a href="/paket" onClick={(event) => { event.preventDefault(); navigatePublic('/paket') }} className="btn-primary !px-5 !py-3 focus-ring">Temukan paket impian <ArrowRight size={17} /></a>
+                  <a href="/paket" onClick={(event) => { event.preventDefault(); navigatePublic('/paket') }} className="btn-secondary !px-5 !py-3 bg-white/80 backdrop-blur">Lihat katalog & karya</a>
                 </div>
               </div>
             </div>
@@ -709,7 +609,7 @@ function App() {
         <div className="mx-auto max-w-7xl">
           <SectionHeading eyebrow="Pilih yang paling kamu" title="Paket rias penuh cerita" description="Setiap detail kami siapkan dengan sepenuh hati, agar kamu bisa menikmati setiap momen." />
           <div className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex gap-2 overflow-x-auto pb-1">
+            <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
               {['Semua', ...store.categories.map((category) => category.name)].map((category) => (
                 <button
                   key={category}
@@ -794,15 +694,6 @@ function App() {
               <Search className="mx-auto mb-3 text-rose-300" />
               <p className="font-semibold text-slate-700">Paket belum ditemukan</p>
               <p className="mt-1 text-sm text-slate-500">Coba kata kunci atau kategori lainnya.</p>
-              {(search || selectedCategory !== 'Semua') && (
-                <button
-                  type="button"
-                  onClick={() => { setSearch(''); setSelectedCategory('Semua'); }}
-                  className="mt-4 inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-1.5 text-xs font-bold text-rose-700 transition hover:bg-rose-100 shadow-xs"
-                >
-                  <X size={14} /> Reset Pencarian & Kategori
-                </button>
-              )}
             </div>
           )}
 
@@ -843,11 +734,7 @@ function App() {
       )}
 
       {publicRoute === '404' && (
-        <NotFoundSection
-          onNavigate={navigatePublic}
-          phone={store.profile.phone}
-          salonName={store.profile.name}
-        />
+        <NotFoundSection onNavigate={navigatePublic} />
       )}
 
     </main>
@@ -863,9 +750,9 @@ function App() {
     {viewingCert && (
       <ModalFrame onClose={() => setViewingCert(null)}>
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-          <p className="text-xs font-bold uppercase tracking-widest text-rose-500">Sertifikat Resmi Desy Salon</p>
-          <button aria-label="Tutup" onClick={() => setViewingCert(null)} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100">
-            <X size={18} />
+          <p className="text-sm font-bold uppercase tracking-widest text-rose-500">Sertifikat Resmi Desy Salon</p>
+          <button aria-label="Tutup" onClick={() => setViewingCert(null)} className="rounded-xl p-2 text-slate-400 hover:bg-slate-100">
+            <X size={20} />
           </button>
         </div>
         <div className="mt-3 flex items-center justify-center max-h-[75vh] overflow-hidden rounded-xl bg-slate-50 p-1">
@@ -877,23 +764,10 @@ function App() {
   </div>
 }
 
-function NotFoundSection({
-  onNavigate,
-  phone,
-  salonName,
-}: {
-  onNavigate: (route: PublicRoute) => void
-  phone: string
-  salonName: string
-}) {
-  const currentPath = typeof window !== 'undefined' ? window.location.pathname : ''
-
+function NotFoundSection({ onNavigate }: { onNavigate: (route: PublicRoute) => void }) {
   return (
-    <section className="flex min-h-[calc(100vh-160px)] items-center justify-center px-5 py-16 sm:py-24">
+    <section className="flex min-h-[calc(100vh-160px)] items-center justify-center px-5 py-20">
       <div className="mx-auto max-w-lg text-center">
-        <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-3xl bg-rose-50 text-rose-500 shadow-inner">
-          <HelpCircle size={42} strokeWidth={1.8} />
-        </div>
         <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3.5 py-1 text-xs font-bold uppercase tracking-wider text-rose-600">
           404 • Halaman Tidak Ditemukan
         </span>
@@ -901,12 +775,7 @@ function NotFoundSection({
           Halaman yang kamu cari belum tersedia
         </h1>
         <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base">
-          {currentPath && currentPath !== '/' ? (
-            <>Tautan <code className="rounded bg-rose-50 px-1.5 py-0.5 font-mono text-xs text-rose-700 font-semibold">{currentPath}</code> mungkin salah ketik atau telah dipindahkan.</>
-          ) : (
-            'Tautan yang kamu tuju mungkin salah ketik atau telah dipindahkan.'
-          )}{' '}
-          Silakan kembali ke beranda atau telusuri katalog layanan kami.
+          Tautan yang kamu tuju mungkin salah ketik atau telah dipindahkan. Silakan kembali ke beranda atau telusuri katalog layanan kami.
         </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <button
@@ -923,14 +792,6 @@ function NotFoundSection({
           >
             <Sparkles size={16} /> Lihat Katalog Layanan
           </button>
-          <a
-            href={whatsappConsultationLink(phone, salonName)}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-700 transition hover:bg-slate-50 shadow-xs"
-          >
-            <MessageCircle size={16} className="text-emerald-600" /> Bantuan WhatsApp
-          </a>
         </div>
       </div>
     </section>
@@ -1103,7 +964,7 @@ function PackageCard({ item, onBook }: { item: Package; onBook: () => void }) {
 }
 
 function FaqSection({ faqs, phone, salonName }: { faqs: FaqItem[]; phone: string; salonName: string }) {
-  const [openIds, setOpenIds] = useState<string[]>([])
+  const [openId, setOpenId] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [showAll, setShowAll] = useState(false)
 
@@ -1122,9 +983,7 @@ function FaqSection({ faqs, phone, salonName }: { faqs: FaqItem[]; phone: string
   }, [faqs, searchQuery, showAll])
 
   function toggleFaq(id: string) {
-    setOpenIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    )
+    setOpenId((prev) => (prev === id ? null : id))
   }
 
   return (
@@ -1167,7 +1026,7 @@ function FaqSection({ faqs, phone, salonName }: { faqs: FaqItem[]; phone: string
           {filteredFaqs.length > 0 ? (
             <>
               {filteredFaqs.map((faq) => {
-                const isOpen = openIds.includes(faq.id)
+                const isOpen = openId === faq.id
                 return (
                   <div
                     key={faq.id}
@@ -1203,9 +1062,9 @@ function FaqSection({ faqs, phone, salonName }: { faqs: FaqItem[]; phone: string
                     className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-white px-5 py-2 text-xs sm:text-sm font-semibold text-rose-600 shadow-2xs hover:bg-rose-50 hover:text-rose-700 transition"
                   >
                     {showAll ? (
-                      <>Tampilkan 5 Pertanyaan Saja <ChevronDown size={15} className="rotate-180" /></>
+                      <>Tutup Pertanyaan <ChevronDown size={15} className="rotate-180" /></>
                     ) : (
-                      <>Lihat Semua Pertanyaan ({faqs.length}) <ChevronDown size={15} /></>
+                      <>Lainnya ({faqs.length - 5}) <ChevronDown size={15} /></>
                     )}
                   </button>
                 </div>
@@ -1321,7 +1180,7 @@ function PortfolioCarousel({ items, showTopBorder = true }: { items: GalleryItem
                   <div className="absolute inset-x-0 bottom-0 p-5 text-white">
                     <div className="mb-2 flex flex-wrap gap-2">
                       <span className="rounded-full bg-white/25 px-2.5 py-1 text-[10px] font-semibold backdrop-blur-md">
-                        {item.eventType}
+                        {item.category || item.eventType}
                       </span>
                       <span className="rounded-full bg-rose-500/90 px-2.5 py-1 text-[10px] font-semibold shadow-xs">
                         {item.tag}
@@ -1389,7 +1248,7 @@ function PublicFooter({ store, onNavigate }: { store: SalonStore; onNavigate: (r
     <div className="mx-auto grid max-w-7xl gap-8 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.65fr)_minmax(0,0.95fr)_minmax(0,1.45fr)] lg:gap-7">
       <div>
         <a href="/" onClick={(event) => { event.preventDefault(); onNavigate('/') }} className="inline-flex items-center"><img src={brandLogo} alt={store.profile.name} className="h-12 w-auto max-w-[220px] object-contain" /></a>
-        <p className="mt-4 max-w-[230px] text-sm font-medium leading-6 text-slate-700">Riasan penuh rasa sejak 1993, untuk hari-hari yang penuh makna. Mari siapkan momen terbaikmu bersama kami.</p>
+        <p className="mt-4 w-full text-sm font-medium leading-6 text-slate-700 lg:max-w-[230px]">Riasan penuh rasa sejak 1993, untuk hari-hari yang penuh makna. Mari siapkan momen terbaikmu bersama kami.</p>
         <a href={whatsappConsultationLink(store.profile.phone, store.profile.name)} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-600"><MessageCircle size={16} /> Konsultasi via WhatsApp</a>
       </div>
       <div>
@@ -1483,62 +1342,135 @@ const BOOKING_MINUTES = [
   '30', '35', '40', '45', '50', '55',
 ] as const
 
-function CustomPinkDatePicker({
-  label,
-  name,
+function CustomPinkDatePickerTrigger({
+  label = 'Tanggal acara *',
+  name = 'date',
+  value,
+  isOpen,
+  onToggle,
+}: {
+  label?: string
+  name?: string
+  value: string
+  isOpen: boolean
+  onToggle: (open: boolean) => void
+}) {
+  return (
+    <div className="w-full min-w-0">
+      <label className="mb-1.5 block text-sm sm:text-base font-bold text-slate-800" htmlFor={`date-btn-${name}`}>
+        {label}
+      </label>
+      <input type="hidden" name={name} value={value} />
+      <button
+        id={`date-btn-${name}`}
+        type="button"
+        onClick={() => onToggle(!isOpen)}
+        className={`field flex min-h-[48px] h-12 w-full items-center justify-between rounded-2xl border bg-white px-3.5 sm:px-4 text-left text-sm sm:text-base transition focus:outline-none focus:ring-2 focus:ring-rose-200 ${
+          isOpen ? 'border-rose-500 ring-2 ring-rose-200' : 'border-rose-200 hover:border-rose-300'
+        }`}
+      >
+        <span className={value ? 'font-semibold text-slate-800' : 'text-slate-400'}>
+          {value ? formatDate(value) : 'Pilih tanggal acara...'}
+        </span>
+        <CalendarDays size={18} className="shrink-0 text-rose-500" />
+      </button>
+    </div>
+  )
+}
+
+function CustomPinkTimePickerTrigger({
+  label = 'Waktu acara (WIB) *',
+  name = 'time',
+  value,
+  isOpen,
+  onToggle,
+}: {
+  label?: string
+  name?: string
+  value: string
+  isOpen: boolean
+  onToggle: (open: boolean) => void
+}) {
+  return (
+    <div className="w-full min-w-0">
+      <label className="mb-1.5 block text-sm sm:text-base font-bold text-slate-800" htmlFor={`time-btn-${name}`}>
+        {label}
+      </label>
+      <input type="hidden" name={name} value={value} />
+      <button
+        id={`time-btn-${name}`}
+        type="button"
+        onClick={() => onToggle(!isOpen)}
+        className={`field flex min-h-[48px] h-12 w-full items-center justify-between rounded-2xl border bg-white px-3.5 sm:px-4 text-left text-sm sm:text-base transition focus:outline-none focus:ring-2 focus:ring-rose-200 ${
+          isOpen ? 'border-rose-500 ring-2 ring-rose-200' : 'border-rose-200 hover:border-rose-300'
+        }`}
+      >
+        <span className={value ? 'font-semibold text-slate-800' : 'text-slate-400'}>
+          {value ? `${value} WIB` : 'Pilih waktu acara...'}
+        </span>
+        <Clock3 size={18} className="shrink-0 text-rose-500" />
+      </button>
+    </div>
+  )
+}
+
+function DatePickerPanel({
   value,
   minDate,
   onChange,
-  isOpen,
-  onToggle,
+  onClose,
   schedules,
 }: {
-  label: string
-  name: string
   value: string
-  minDate: string
+  minDate?: string
   onChange: (val: string) => void
-  isOpen: boolean
-  onToggle: (open: boolean) => void
+  onClose: () => void
   schedules?: Schedule[]
 }) {
-  const initialDate = value || minDate
+  const initialDate = value || minDate || getLocalIsoDate(new Date())
   const [viewYear, setViewYear] = useState(() => Number(initialDate.slice(0, 4)) || new Date().getFullYear())
   const [viewMonth, setViewMonth] = useState(() => (Number(initialDate.slice(5, 7)) || 1) - 1)
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [viewMode, setViewMode] = useState<'days' | 'months'>('days')
 
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        onToggle(false)
+    if (value) {
+      const y = Number(value.slice(0, 4))
+      const m = Number(value.slice(5, 7)) - 1
+      if (!isNaN(y) && !isNaN(m)) {
+        setViewYear(y)
+        setViewMonth(m)
       }
     }
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [isOpen, onToggle])
+  }, [value])
 
-  const minYear = Number(minDate.slice(0, 4))
-  const minMonth = Number(minDate.slice(5, 7)) - 1
-  const canGoPrev = viewYear > minYear || (viewYear === minYear && viewMonth > minMonth)
+  const minYear = minDate ? Number(minDate.slice(0, 4)) : -Infinity
+  const minMonth = minDate ? Number(minDate.slice(5, 7)) - 1 : -Infinity
+  const canGoPrevMonth = viewYear > minYear || (viewYear === minYear && viewMonth > minMonth)
 
-  function prevMonth() {
-    if (!canGoPrev) return
-    if (viewMonth === 0) {
-      setViewMonth(11)
+  function prevAction() {
+    if (viewMode === 'months') {
       setViewYear((y) => y - 1)
     } else {
-      setViewMonth((m) => m - 1)
+      if (!canGoPrevMonth) return
+      if (viewMonth === 0) {
+        setViewMonth(11)
+        setViewYear((y) => y - 1)
+      } else {
+        setViewMonth((m) => m - 1)
+      }
     }
   }
 
-  function nextMonth() {
-    if (viewMonth === 11) {
-      setViewMonth(0)
+  function nextAction() {
+    if (viewMode === 'months') {
       setViewYear((y) => y + 1)
     } else {
-      setViewMonth((m) => m + 1)
+      if (viewMonth === 11) {
+        setViewMonth(0)
+        setViewYear((y) => y + 1)
+      } else {
+        setViewMonth((m) => m + 1)
+      }
     }
   }
 
@@ -1563,7 +1495,7 @@ function CustomPinkDatePicker({
       list.push({
         day: d,
         dateStr,
-        isPast: dateStr < minDate,
+        isPast: minDate ? dateStr < minDate : false,
         isSelected: dateStr === value,
       })
     }
@@ -1571,49 +1503,47 @@ function CustomPinkDatePicker({
   }, [viewYear, viewMonth, daysInMonth, minDate, value])
 
   return (
-    <div className="relative w-full min-w-0" ref={containerRef}>
-      <label className="mb-1 block text-xs font-bold text-slate-700" htmlFor={`date-btn-${name}`}>
-        {label}
-      </label>
-      <input type="hidden" name={name} value={value} />
-      <button
-        id={`date-btn-${name}`}
-        type="button"
-        onClick={() => onToggle(!isOpen)}
-        className="field flex h-10 w-full items-center justify-between rounded-xl border border-rose-200 bg-white px-3 text-left text-xs sm:text-sm transition focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-      >
-        <span className={value ? 'font-semibold text-slate-800' : 'text-slate-400'}>
-          {value ? formatDate(value) : 'Pilih tanggal acara...'}
-        </span>
-        <CalendarDays size={16} className="shrink-0 text-rose-500" />
-      </button>
+    <div className="w-full rounded-2xl border border-rose-200 bg-white p-3 sm:p-3.5 shadow-md">
+      <div className="mb-2.5 flex items-center justify-between border-b border-rose-100 pb-2.5">
+        <button
+          type="button"
+          disabled={viewMode === 'days' && !canGoPrevMonth}
+          onClick={prevAction}
+          aria-label="Sebelumnya"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-600"
+        >
+          <ChevronLeft size={18} />
+        </button>
 
-      {isOpen && (
-        <div className="absolute left-0 right-0 top-full z-30 mt-2 w-full rounded-2xl border border-rose-200 bg-white p-3.5 shadow-xl ring-1 ring-black/5 animate-in fade-in zoom-in-95">
-          <div className="mb-2 flex items-center justify-between border-b border-rose-100 pb-2">
-            <button
-              type="button"
-              disabled={!canGoPrev}
-              onClick={prevMonth}
-              aria-label="Bulan sebelumnya"
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-600 transition hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-600"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <span className="text-xs font-bold text-slate-800">
-              {MONTH_NAMES[viewMonth]} {viewYear}
-            </span>
-            <button
-              type="button"
-              onClick={nextMonth}
-              aria-label="Bulan berikutnya"
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-600 transition hover:bg-rose-50 hover:text-rose-600"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
+        {viewMode === 'days' ? (
+          <button
+            type="button"
+            onClick={() => setViewMode('months')}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm sm:text-base font-bold text-slate-800 transition hover:bg-rose-50 hover:text-rose-600"
+            title="Klik untuk memilih bulan & tahun"
+          >
+            <span>{MONTH_NAMES[viewMonth]} {viewYear}</span>
+            <ChevronDown size={16} className="text-slate-400" />
+          </button>
+        ) : (
+          <span className="text-sm sm:text-base font-bold text-slate-900">
+            Pilih Bulan ({viewYear})
+          </span>
+        )}
 
-          <div className="mb-1.5 grid grid-cols-7 text-center text-[10px] font-bold text-slate-400">
+        <button
+          type="button"
+          onClick={nextAction}
+          aria-label="Berikutnya"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 transition hover:bg-rose-50 hover:text-rose-600"
+        >
+          <ChevronRight size={18} />
+        </button>
+      </div>
+
+      {viewMode === 'days' ? (
+        <>
+          <div className="mb-1.5 grid grid-cols-7 text-center text-[11px] sm:text-xs font-bold text-slate-500">
             <span>Min</span>
             <span>Sen</span>
             <span>Sel</span>
@@ -1623,229 +1553,221 @@ function CustomPinkDatePicker({
             <span>Sab</span>
           </div>
 
-          <div className="grid grid-cols-7 gap-1 text-center">
+          <div className="grid grid-cols-7 gap-0.5 sm:gap-1 text-center">
             {Array.from({ length: firstDay }).map((_, i) => (
-              <span key={`empty-${i}`} className="h-7 w-7" />
+              <span key={`empty-${i}`} className="flex aspect-square w-full max-w-[36px] mx-auto" />
             ))}
             {days.map(({ day, dateStr, isPast, isSelected }) => {
-              const info = schedulesOnThisDate[dateStr]
-              const hasBooking = Boolean(info && info.count > 0)
-              const hasFullDay = Boolean(info && info.hasFullDay)
-              const isDisabled = isPast || hasFullDay
+              const bookingInfo = schedulesOnThisDate[dateStr]
+              const hasBooking = Boolean(bookingInfo && bookingInfo.count > 0)
+              const isFullDay = Boolean(bookingInfo && (bookingInfo.hasFullDay || bookingInfo.count >= 2))
 
               return (
                 <button
                   key={dateStr}
                   type="button"
-                  disabled={isDisabled}
+                  disabled={isPast}
                   onClick={() => {
                     onChange(dateStr)
-                    onToggle(false)
+                    onClose()
                   }}
-                  title={
-                    hasFullDay
-                      ? 'Jadwal Penuh (Full Day)'
-                      : hasBooking
-                      ? `${info.count} booking pada tanggal ini`
-                      : undefined
-                  }
-                  className={`mx-auto flex h-7 w-7 flex-col items-center justify-center rounded-lg text-xs font-semibold relative transition ${
+                  className={`relative mx-auto flex aspect-square w-full max-w-[36px] items-center justify-center rounded-xl text-xs sm:text-sm transition ${
                     isSelected
-                      ? 'bg-rose-500 text-white font-bold shadow-xs'
-                      : hasFullDay
-                      ? 'bg-rose-50 text-rose-300 cursor-not-allowed line-through'
+                      ? 'bg-rose-500 font-bold text-white shadow-xs'
                       : isPast
-                      ? 'text-slate-300 cursor-not-allowed'
+                      ? 'cursor-not-allowed text-slate-300'
+                      : isFullDay
+                      ? 'bg-rose-50 font-semibold text-rose-700 hover:bg-rose-100'
                       : hasBooking
-                      ? 'text-slate-800 bg-amber-50 hover:bg-rose-50 hover:text-rose-600'
-                      : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
+                      ? 'bg-amber-50 font-semibold text-amber-800 hover:bg-amber-100'
+                      : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600 font-medium'
                   }`}
                 >
-                  <span className="leading-none">{day}</span>
-                  {hasFullDay ? (
-                    <span className="h-1 w-1 rounded-full bg-rose-400 mt-0.5" />
-                  ) : hasBooking ? (
+                  <span>{day}</span>
+                  {hasBooking && !isPast && (
                     <span
-                      className={`h-1 w-1 rounded-full mt-0.5 ${
-                        isSelected ? 'bg-white' : 'bg-amber-500'
+                      className={`absolute bottom-1 h-1.5 w-1.5 rounded-full ${
+                        isSelected ? 'bg-white' : isFullDay ? 'bg-rose-500' : 'bg-amber-500'
                       }`}
                     />
-                  ) : null}
+                  )}
                 </button>
               )
             })}
           </div>
 
           {schedules && schedules.length > 0 && (
-            <div className="mt-2.5 flex items-center justify-center gap-3 border-t border-rose-100 pt-2 text-[10px] text-slate-500">
-              <span className="flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-500 inline-block" /> Ada booking
+            <div className="mt-3 flex items-center justify-center gap-4 border-t border-rose-100 pt-2.5 text-xs text-slate-600">
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-amber-500 inline-block" /> Ada booking
               </span>
-              <span className="flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-rose-400 inline-block" /> Penuh
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-rose-500 inline-block" /> Penuh
               </span>
             </div>
           )}
+        </>
+      ) : (
+        <div className="grid grid-cols-3 gap-2 py-1.5">
+          {MONTH_NAMES.map((name, idx) => {
+            const isSelectedMonth = idx === viewMonth
+            const isPastMonth = minDate
+              ? viewYear < minYear || (viewYear === minYear && idx < minMonth)
+              : false
+            return (
+              <button
+                key={name}
+                type="button"
+                disabled={isPastMonth}
+                onClick={() => {
+                  setViewMonth(idx)
+                  setViewMode('days')
+                }}
+                className={`rounded-xl py-2.5 text-xs sm:text-sm font-semibold transition ${
+                  isSelectedMonth
+                    ? 'bg-rose-500 text-white font-bold shadow-xs'
+                    : isPastMonth
+                    ? 'text-slate-300 cursor-not-allowed'
+                    : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
+                }`}
+              >
+                {name}
+              </button>
+            )
+          })}
         </div>
       )}
     </div>
   )
 }
 
-function CustomPinkTimePicker({
-  label,
-  name,
+function TimePickerPanel({
   value,
   onChange,
-  isOpen,
-  onToggle,
+  onClose,
   bookedTimes = [],
 }: {
-  label: string
-  name: string
   value: string
   onChange: (val: string) => void
-  isOpen: boolean
-  onToggle: (open: boolean) => void
+  onClose: () => void
   bookedTimes?: string[]
 }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-
   const [rawHour, rawMinute] = (value || '09:00').split(':')
-  const currentHour = rawHour || '09'
-  const currentMinute = rawMinute || '00'
-
-  const minutesList = useMemo(() => {
-    if (currentMinute && !BOOKING_MINUTES.includes(currentMinute as any)) {
-      return [currentMinute, ...BOOKING_MINUTES].sort()
-    }
-    return BOOKING_MINUTES
-  }, [currentMinute])
+  const [tempHour, setTempHour] = useState(rawHour || '09')
+  const [tempMinute, setTempMinute] = useState(rawMinute || '00')
 
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        onToggle(false)
-      }
+    if (value) {
+      const [h, m] = value.split(':')
+      if (h) setTempHour(h)
+      if (m) setTempMinute(m)
     }
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [value])
+
+  const minutesList = useMemo(() => {
+    if (tempMinute && !BOOKING_MINUTES.includes(tempMinute as any)) {
+      return [tempMinute, ...BOOKING_MINUTES].sort()
     }
-  }, [isOpen, onToggle])
+    return BOOKING_MINUTES
+  }, [tempMinute])
+
+  function handleConfirm() {
+    onChange(`${tempHour}:${tempMinute}`)
+    onClose()
+  }
 
   return (
-    <div className="relative w-full min-w-0" ref={containerRef}>
-      <label className="mb-1 block text-xs font-bold text-slate-700" htmlFor={`time-btn-${name}`}>
-        {label}
-      </label>
-      <input type="hidden" name={name} value={value} />
-      <button
-        id={`time-btn-${name}`}
-        type="button"
-        onClick={() => onToggle(!isOpen)}
-        className="field flex h-10 w-full items-center justify-between rounded-xl border border-rose-200 bg-white px-3 text-left text-xs sm:text-sm transition focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
-      >
-        <span className={value ? 'font-semibold text-slate-800' : 'text-slate-400'}>
-          {value ? `${value} WIB` : 'Pilih waktu acara...'}
+    <div className="w-full rounded-2xl border border-rose-200 bg-white p-3 sm:p-3.5 shadow-md">
+      <div className="mb-2.5 flex items-center justify-between border-b border-rose-100 pb-2">
+        <span className="flex items-center gap-1.5 text-xs sm:text-sm font-bold uppercase tracking-wider text-rose-600">
+          <Clock3 size={16} /> Waktu Acara
         </span>
-        <Clock3 size={16} className="shrink-0 text-rose-500" />
-      </button>
+        <span className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-600">
+          {tempHour}:{tempMinute} WIB
+        </span>
+      </div>
 
-      {isOpen && (
-        <div className="absolute left-0 right-0 top-full z-30 mt-2 w-full rounded-2xl border border-rose-200 bg-white p-3.5 shadow-xl ring-1 ring-black/5 animate-in fade-in zoom-in-95">
-          <div className="mb-2.5 flex items-center justify-between border-b border-rose-100 pb-2">
-            <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-rose-600">
-              <Clock3 size={14} /> Waktu Acara
-            </span>
-            <span className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-600">
-              {currentHour}:{currentMinute} WIB
-            </span>
+      <div className="grid grid-cols-2 gap-2.5 text-center">
+        <div>
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
+            Jam
+          </span>
+          <div className="max-h-40 overflow-y-auto space-y-1.5 rounded-xl border border-rose-100/80 bg-rose-50/20 p-1.5 pr-1">
+            {BOOKING_HOURS.map((h) => {
+              const isSelected = h === tempHour
+              const isHourBooked = bookedTimes.some((t) => t.startsWith(`${h}:`))
+              return (
+                <button
+                  key={h}
+                  type="button"
+                  onClick={() => setTempHour(h)}
+                  className={`w-full rounded-lg py-1.5 px-2 text-sm sm:text-base font-semibold flex items-center justify-between transition ${
+                    isSelected
+                      ? 'bg-rose-500 text-white font-bold shadow-xs'
+                      : isHourBooked
+                      ? 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                      : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
+                  }`}
+                >
+                  <span>{h}</span>
+                  {isHourBooked && (
+                    <span className={`text-[10px] sm:text-xs font-bold ${isSelected ? 'text-rose-100' : 'text-rose-600'}`}>
+                      Terisi
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </div>
-
-          <div className="grid grid-cols-2 gap-2 text-center">
-            <div>
-              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Jam
-              </span>
-              <div className="max-h-32 overflow-y-auto space-y-1 rounded-xl border border-rose-100/80 bg-rose-50/20 p-1 pr-0.5">
-                {BOOKING_HOURS.map((h) => {
-                  const isSelected = h === currentHour
-                  const isHourBooked = bookedTimes.some((t) => t.startsWith(`${h}:`))
-                  return (
-                    <button
-                      key={h}
-                      type="button"
-                      onClick={() => onChange(`${h}:${currentMinute}`)}
-                      className={`w-full rounded-lg py-1 px-1.5 text-xs font-semibold flex items-center justify-between transition ${
-                        isSelected
-                          ? 'bg-rose-500 text-white font-bold shadow-xs'
-                          : isHourBooked
-                          ? 'bg-rose-50 text-rose-700 hover:bg-rose-100'
-                          : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
-                      }`}
-                    >
-                      <span>{h}</span>
-                      {isHourBooked && (
-                        <span className={`text-[9px] font-bold ${isSelected ? 'text-rose-100' : 'text-rose-600'}`}>
-                          Terisi
-                        </span>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div>
-              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Menit
-              </span>
-              <div className="max-h-32 overflow-y-auto space-y-1 rounded-xl border border-rose-100/80 bg-rose-50/20 p-1 pr-0.5">
-                {minutesList.map((m) => {
-                  const isSelected = m === currentMinute
-                  const isSlotBooked = bookedTimes.includes(`${currentHour}:${m}`)
-                  return (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => onChange(`${currentHour}:${m}`)}
-                      className={`w-full rounded-lg py-1 px-1.5 text-xs font-semibold flex items-center justify-between transition ${
-                        isSelected
-                          ? 'bg-rose-500 text-white font-bold shadow-xs'
-                          : isSlotBooked
-                          ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
-                          : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
-                      }`}
-                    >
-                      <span>{m}</span>
-                      {isSlotBooked && (
-                        <span className={`text-[9px] font-bold ${isSelected ? 'text-rose-100' : 'text-rose-600'}`}>
-                          Bentrok
-                        </span>
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-
-          {bookedTimes.length > 0 && (
-            <p className="mt-2 rounded-lg bg-amber-50/80 p-1 text-center text-[10px] font-medium text-amber-700">
-              Waktu bertanda <strong className="text-rose-600">Terisi / Bentrok</strong> sudah dipesan.
-            </p>
-          )}
-
-          <button
-            type="button"
-            onClick={() => onToggle(false)}
-            className="mt-2.5 w-full rounded-xl bg-rose-500 py-1.5 text-xs font-bold text-white shadow-xs transition hover:bg-rose-600"
-          >
-            Pilih Jam Ini
-          </button>
         </div>
+
+        <div>
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
+            Menit
+          </span>
+          <div className="max-h-40 overflow-y-auto space-y-1.5 rounded-xl border border-rose-100/80 bg-rose-50/20 p-1.5 pr-1">
+            {minutesList.map((m) => {
+              const isSelected = m === tempMinute
+              const isSlotBooked = bookedTimes.includes(`${tempHour}:${m}`)
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setTempMinute(m)}
+                  className={`w-full rounded-lg py-1.5 px-2 text-sm sm:text-base font-semibold flex items-center justify-between transition ${
+                    isSelected
+                      ? 'bg-rose-500 text-white font-bold shadow-xs'
+                      : isSlotBooked
+                      ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
+                      : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
+                  }`}
+                >
+                  <span>{m}</span>
+                  {isSlotBooked && (
+                    <span className={`text-[10px] sm:text-xs font-bold ${isSelected ? 'text-rose-100' : 'text-rose-600'}`}>
+                      Bentrok
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {bookedTimes.length > 0 && (
+        <p className="mt-2.5 rounded-lg bg-amber-50/80 p-1.5 text-center text-xs font-medium text-amber-700">
+          Waktu bertanda <strong className="text-rose-600">Terisi / Bentrok</strong> sudah dipesan.
+        </p>
       )}
+
+      <button
+        type="button"
+        onClick={handleConfirm}
+        className="mt-3 w-full rounded-xl bg-rose-500 py-3 text-sm sm:text-base font-bold text-white shadow-xs transition hover:bg-rose-600"
+      >
+        Pilih Jam Ini
+      </button>
     </div>
   )
 }
@@ -1859,7 +1781,7 @@ function BookingModal({
   item: Package
   schedules: Schedule[]
   onClose: () => void
-  onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void> | void
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
   const minDateTime = useMemo(() => {
     const d = new Date(Date.now() + 24 * 60 * 60 * 1000)
@@ -1923,28 +1845,28 @@ function BookingModal({
   }
 
   return (
-    <ModalFrame onClose={onClose} maxWidth="max-w-xl" contentPadding="p-5 sm:p-6" overflowClass="overflow-y-auto">
+    <ModalFrame onClose={onClose} maxWidth="max-w-xl sm:max-w-[660px]" contentPadding="p-5 sm:p-6" overflowClass="overflow-y-auto">
       {/* Compact Header: Thumbnail Paket, Nama, Harga, Badge Min. H-1, dan Tombol Tutup */}
-      <div className="flex items-center justify-between gap-3 border-b border-rose-100 pb-3 mb-4">
+      <div className="flex items-center justify-between gap-3 border-b border-rose-100 pb-3.5 mb-4">
         <div className="flex items-center gap-3 min-w-0">
           <img
             src={item.image}
             alt={item.name}
-            className="h-11 w-11 sm:h-12 sm:w-12 shrink-0 rounded-xl object-cover ring-2 ring-rose-200/80 shadow-xs"
+            className="h-12 w-12 sm:h-14 sm:w-14 shrink-0 rounded-xl object-cover ring-2 ring-rose-200/80 shadow-xs"
           />
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-rose-700">
+              <span className="rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider text-rose-700">
                 Booking Reservasi
               </span>
-              <span className="rounded-md border border-rose-200 bg-rose-50/70 px-1.5 py-0.2 text-[10px] font-semibold text-rose-700">
+              <span className="rounded-md border border-rose-200 bg-rose-50/70 px-2 py-0.5 text-xs font-semibold text-rose-700">
                 Min. H-1
               </span>
             </div>
-            <h3 className="truncate font-display text-sm sm:text-base font-bold text-slate-900 mt-0.5">
+            <h3 className="truncate font-display text-base sm:text-lg font-bold text-slate-900 mt-1">
               {item.name}
             </h3>
-            <p className="text-xs font-semibold text-rose-600">
+            <p className="text-sm sm:text-base font-bold text-rose-600 mt-0.5">
               {item.category.toLowerCase().includes('perawatan')
                 ? `${rupiah(item.price)} / layanan`
                 : item.priceMax
@@ -1956,17 +1878,17 @@ function BookingModal({
         <button
           aria-label="Tutup"
           onClick={onClose}
-          className="shrink-0 rounded-xl border border-slate-200 bg-slate-50 p-2 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition"
+          className="shrink-0 rounded-xl border border-slate-200 bg-slate-50 p-2.5 text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition"
         >
-          <X size={18} />
+          <X size={20} />
         </button>
       </div>
 
       <form onSubmit={handleFormSubmit} className="space-y-4">
         {/* Responsive Grid: Lebar label & input 100% presisi dan seragam */}
-        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-3 transition-all duration-200 ${openPicker ? 'mb-60 sm:mb-56' : 'mb-0'}`}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           <div className="w-full min-w-0">
-            <label className="mb-1 block text-xs font-bold text-slate-700" htmlFor="booking-name">
+            <label className="mb-1.5 block text-sm sm:text-base font-bold text-slate-800" htmlFor="booking-name">
               Nama lengkap *
             </label>
             <input
@@ -1974,13 +1896,13 @@ function BookingModal({
               id="booking-name"
               name="clientName"
               autoComplete="name"
-              className="field block h-10 w-full rounded-xl border border-rose-200 bg-white px-3 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 focus:outline-none transition"
+              className="field block h-12 w-full rounded-xl border border-rose-200 bg-white px-3.5 sm:px-4 text-sm sm:text-base text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 focus:outline-none transition"
               placeholder="Nama pemesan"
             />
           </div>
 
           <div className="w-full min-w-0">
-            <label className="mb-1 block text-xs font-bold text-slate-700" htmlFor="booking-phone">
+            <label className="mb-1.5 block text-sm sm:text-base font-bold text-slate-800" htmlFor="booking-phone">
               Nomor WhatsApp *
             </label>
             <input
@@ -1992,45 +1914,67 @@ function BookingModal({
               maxLength={18}
               onInput={(e) => { e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+\-]/g, '') }}
               autoComplete="tel"
-              className="field block h-10 w-full rounded-xl border border-rose-200 bg-white px-3 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 focus:outline-none transition"
+              className="field block h-12 w-full rounded-xl border border-rose-200 bg-white px-3.5 sm:px-4 text-sm sm:text-base text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 focus:outline-none transition"
               placeholder="08xxxxxxxxxx"
             />
           </div>
 
-          <CustomPinkDatePicker
-            label="Tanggal acara *"
-            name="date"
-            value={date}
-            minDate={minDateTime.date}
-            onChange={handleDateChange}
-            isOpen={openPicker === 'date'}
-            onToggle={(open) => setOpenPicker(open ? 'date' : null)}
-            schedules={schedules}
-          />
+          {/* Kolom 1: Tanggal acara */}
+          <div className="w-full min-w-0">
+            <CustomPinkDatePickerTrigger
+              label="Tanggal acara *"
+              name="date"
+              value={date}
+              isOpen={openPicker === 'date'}
+              onToggle={(open) => setOpenPicker(open ? 'date' : null)}
+            />
+            {openPicker === 'date' && (
+              <div className="mt-2 w-full animate-in fade-in duration-150">
+                <DatePickerPanel
+                  value={date}
+                  minDate={minDateTime.date}
+                  onChange={handleDateChange}
+                  onClose={() => setOpenPicker(null)}
+                  schedules={schedules}
+                />
+              </div>
+            )}
+          </div>
 
-          <CustomPinkTimePicker
-            label="Waktu acara (WIB) *"
-            name="time"
-            value={time}
-            onChange={handleTimeChange}
-            isOpen={openPicker === 'time'}
-            onToggle={(open) => setOpenPicker(open ? 'time' : null)}
-            bookedTimes={bookedTimesOnDate}
-          />
+          {/* Kolom 2: Waktu acara */}
+          <div className="w-full min-w-0">
+            <CustomPinkTimePickerTrigger
+              label="Waktu acara (WIB) *"
+              name="time"
+              value={time}
+              isOpen={openPicker === 'time'}
+              onToggle={(open) => setOpenPicker(open ? 'time' : null)}
+            />
+            {openPicker === 'time' && (
+              <div className="mt-2 w-full animate-in fade-in duration-150">
+                <TimePickerPanel
+                  value={time}
+                  onChange={handleTimeChange}
+                  onClose={() => setOpenPicker(null)}
+                  bookedTimes={bookedTimesOnDate}
+                />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Real-time Status Banner: Validasi H-1, Bentrok, atau Tersedia */}
         {timeError ? (
-          <div role="alert" className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">
-            <AlertCircle size={16} className="shrink-0 text-rose-600" />
+          <div role="alert" className="flex items-center gap-2.5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm sm:text-base font-semibold text-rose-700">
+            <AlertCircle size={20} className="shrink-0 text-rose-600" />
             <span>{timeError}</span>
           </div>
         ) : collidingSchedule ? (
-          <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50/95 p-3 text-xs text-rose-800">
-            <AlertCircle size={16} className="shrink-0 text-rose-600 mt-0.5" />
-            <div className="space-y-0.5">
-              <p className="font-bold text-rose-900">Jadwal Bentrok / Sudah Terisi</p>
-              <p className="text-rose-700">
+          <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-rose-200 bg-rose-50/95 p-3.5 sm:p-4 text-sm sm:text-base text-rose-800">
+            <AlertCircle size={20} className="shrink-0 text-rose-600 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-rose-900 text-sm sm:text-base">Jadwal Bentrok / Sudah Terisi</p>
+              <p className="text-rose-700 text-xs sm:text-sm">
                 {isFullDayBooked
                   ? `Tanggal ${formatDate(date)} sudah terisi pesanan seharian penuh (Full Day). Silakan pilih tanggal lain.`
                   : `Tanggal ${formatDate(date)} pukul ${time} WIB sudah terisi untuk ${collidingSchedule.packageName}. Silakan pilih waktu atau tanggal alternatif agar tidak bentrok.`}
@@ -2038,18 +1982,19 @@ function BookingModal({
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-800">
-            <CheckCircle2 size={16} className="shrink-0 text-emerald-600" />
+          <div className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm sm:text-base text-emerald-800">
+            <CheckCircle2 size={20} className="shrink-0 text-emerald-600" />
             <span>
               Jadwal <strong>{formatDate(date)}</strong> pukul <strong>{time} WIB</strong> siap dipesan.
             </span>
           </div>
         )}
 
+        {/* Tombol Lanjutkan & konfirmasi via WA: berada tepat di bawah banner status */}
         <button
           type="submit"
           disabled={Boolean(collidingSchedule || timeError)}
-          className={`inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-xs sm:text-sm font-bold transition shadow-xs ${
+          className={`inline-flex w-full items-center justify-center gap-2.5 rounded-xl px-5 py-3.5 sm:py-4 text-sm sm:text-base font-bold transition shadow-md ${
             collidingSchedule || timeError
               ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
               : 'bg-emerald-600 text-white hover:bg-emerald-700'
@@ -2057,11 +2002,11 @@ function BookingModal({
         >
           {collidingSchedule ? (
             <>
-              <AlertCircle size={16} /> Jadwal Bentrok — Silakan Pilih Waktu Lain
+              <AlertCircle size={20} /> Jadwal Bentrok — Silakan Pilih Waktu Lain
             </>
           ) : (
             <>
-              <MessageCircle size={16} /> Lanjutkan & konfirmasi via WA
+              <MessageCircle size={20} /> Lanjutkan & konfirmasi via WA
             </>
           )}
         </button>
@@ -2075,18 +2020,10 @@ function LoginPage({ store, onOwnerLogin }: { store: SalonStore; onOwnerLogin: (
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    try {
-      await api.auth.login(username.trim(), password)
-      onOwnerLogin()
-    } catch {
-      if (username.trim() === store.credentials.username && password === store.credentials.password) {
-        onOwnerLogin()
-      } else {
-        setError('Username atau password belum sesuai.')
-      }
-    }
+    if (username.trim() === store.credentials.username && password === store.credentials.password) onOwnerLogin()
+    else setError('Username atau password belum sesuai.')
   }
 
   return <main className="flex min-h-screen items-center justify-center bg-rose-50/50 px-5 py-10">
@@ -2175,7 +2112,7 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
             </span>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-slate-800">Desy</p>
-              <p className="text-xs text-slate-500">Pemilik studio</p>
+              <p className="text-xs text-slate-500">Pengelola Usaha</p>
             </div>
           </div>
           <button
@@ -2217,7 +2154,7 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
             </span>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-slate-800">Desy</p>
-              <p className="text-xs text-slate-500">Pemilik studio</p>
+              <p className="text-xs text-slate-500">Pengelola Usaha</p>
             </div>
           </div>
         </div>
@@ -2250,11 +2187,102 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
       </header>
 
       <main className="mx-auto min-w-0 max-w-[1440px] px-3 py-5 sm:px-8 sm:py-7 lg:px-9">
-        {/* Menyisakan 2 card: Paket Katalog & Booking Mendatang */}
-        <section className="mb-5 grid grid-cols-1 gap-3 sm:mb-7 sm:grid-cols-2">
-          <StatCard title="Paket Katalog" count={store.packages.length} detail="Pilihan layanan aktif" icon={PackageCheck} color="rose" />
-          <StatCard title="Booking Mendatang" count={store.schedules.filter((item) => item.status !== 'Lunas').length} detail="Perlu ditangani" icon={CalendarDays} color="sky" />
-        </section>
+        {/* 2 Card Statistik di atas: Disesuaikan per menu (FAQ, Portfolio, Jadwal), menu utama Paket & Booking, disembunyikan di Akun & Sertifikat */}
+        {activeTab !== 'Akun' && activeTab !== 'Sertifikat' && (
+          <section className="mb-5 grid grid-cols-1 gap-3 sm:mb-7 sm:grid-cols-2">
+            {activeTab === 'FAQ' ? (
+              <>
+                <StatCard
+                  title="FAQ Tata Rias"
+                  count={store.faqs.filter((item) => (item.category || '').toLowerCase().includes('rias')).length}
+                  detail="Pertanyaan seputar rias & makeup"
+                  icon={Sparkles}
+                  color="rose"
+                />
+                <StatCard
+                  title="FAQ Layanan Salon"
+                  count={store.faqs.filter((item) => (item.category || '').toLowerCase().includes('salon')).length}
+                  detail="Pertanyaan perawatan salon"
+                  icon={HelpCircle}
+                  color="sky"
+                />
+              </>
+            ) : activeTab === 'Portfolio' ? (
+              <>
+                <StatCard
+                  title="Total Foto Portfolio"
+                  count={store.gallery.length}
+                  detail="Koleksi dokumentasi hasil rias"
+                  icon={Image}
+                  color="rose"
+                />
+                <StatCard
+                  title="Kategori Terpakai"
+                  count={new Set(store.gallery.map((item) => (item.category || item.eventType || '').trim()).filter(Boolean)).size}
+                  detail="Kategori aktif di portfolio"
+                  icon={LayoutDashboard}
+                  color="sky"
+                />
+              </>
+            ) : activeTab === 'Kategori' ? (
+              <>
+                <StatCard
+                  title="Total Kategori"
+                  count={store.categories.length}
+                  detail="Jenis kategori layanan"
+                  icon={LayoutDashboard}
+                  color="rose"
+                />
+                <StatCard
+                  title="Total Paket"
+                  count={store.packages.length}
+                  detail="Paket terkait di katalog"
+                  icon={PackageCheck}
+                  color="sky"
+                />
+              </>
+            ) : activeTab === 'Kategori' ? (
+              <>
+                <StatCard
+                  title="Total Kategori"
+                  count={store.categories.length}
+                  detail="Jenis kategori layanan"
+                  icon={LayoutDashboard}
+                  color="rose"
+                />
+                <StatCard
+                  title="Total Paket"
+                  count={store.packages.length}
+                  detail="Paket terkait di katalog"
+                  icon={PackageCheck}
+                  color="sky"
+                />
+              </>
+            ) : activeTab === 'Jadwal' ? (
+              <>
+                <StatCard
+                  title="Terkonfirmasi"
+                  count={store.schedules.filter((item) => item.status === 'Terkonfirmasi').length}
+                  detail="Jadwal rias siap & terkonfirmasi"
+                  icon={CheckCircle2}
+                  color="emerald"
+                />
+                <StatCard
+                  title="Pending"
+                  count={store.schedules.filter((item) => item.status === 'Menunggu Konfirmasi' || item.status === 'Menunggu DP').length}
+                  detail="Menunggu konfirmasi & DP"
+                  icon={Clock3}
+                  color="amber"
+                />
+              </>
+            ) : (
+              <>
+                <StatCard title="Paket Katalog" count={store.packages.length} detail="Pilihan layanan aktif" icon={PackageCheck} color="rose" />
+                <StatCard title="Booking Mendatang" count={store.schedules.filter((item) => item.status !== 'Lunas').length} detail="Perlu ditangani" icon={CalendarDays} color="sky" />
+              </>
+            )}
+          </section>
+        )}
 
         {/* Konten Menu Yang Bersangkutan (Hanya tampil 1 menu yang aktif) */}
         <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
@@ -2264,7 +2292,7 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
           {activeTab === 'Portfolio' && <GalleryManager store={store} onOpen={onOpen} onDelete={onDelete} />}
           {activeTab === 'Sertifikat' && <CertificatesManager store={store} onOpen={onOpen} onDelete={onDelete} />}
           {activeTab === 'FAQ' && <FaqManager store={store} onOpen={onOpen} onDelete={onDelete} />}
-          {activeTab === 'Akun' && <SettingsManager store={store} onSave={onSettingsSave} onLogout={onLogout} />}
+          {activeTab === 'Akun' && <SettingsManager store={store} onSave={onSettingsSave} />}
         </section>
       </main>
     </div>
@@ -2429,48 +2457,52 @@ function SearchableSelect({
         id={name ? `searchable-btn-${name}` : undefined}
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className={`field flex w-full items-center justify-between text-left focus:outline-none ${buttonClassName}`}
+        className={`flex w-full items-center justify-between text-left transition focus:outline-none ${
+          buttonClassName
+            ? buttonClassName
+            : 'field min-h-[48px] h-12 text-sm sm:text-base px-3.5 sm:px-4 rounded-2xl'
+        }`}
       >
         <span className={`truncate ${selected ? 'font-medium text-slate-800' : 'text-slate-400'}`}>
           {selected || placeholder}
         </span>
-        <ChevronDown size={16} className={`shrink-0 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDown size={buttonClassName ? 15 : 18} className={`shrink-0 ml-1.5 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 w-full max-h-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl ring-1 ring-black/5">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 w-full max-h-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl ring-1 ring-black/5">
           <div className="border-b border-slate-100 p-2">
             <div className="relative">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 ref={searchInputRef}
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={searchPlaceholder}
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-8 pr-2.5 text-xs text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:bg-white focus:outline-none"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 text-sm text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:bg-white focus:outline-none"
               />
             </div>
           </div>
-          <div className="max-h-48 overflow-y-auto p-1">
+          <div className="max-h-56 overflow-y-auto p-1 space-y-0.5">
             {filteredOptions.length > 0 ? (
               filteredOptions.map((option) => (
                 <button
                   key={option}
                   type="button"
                   onClick={() => handleSelect(option)}
-                  className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-xs transition ${
+                  className={`flex w-full items-center justify-between rounded-lg px-3.5 py-3 text-sm sm:text-base transition ${
                     selected === option
                       ? 'bg-rose-50 font-bold text-rose-700'
-                      : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                      : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-medium'
                   }`}
                 >
                   <span className="truncate">{option}</span>
-                  {selected === option && <Check size={14} className="shrink-0 text-rose-600" />}
+                  {selected === option && <Check size={16} className="shrink-0 text-rose-600" />}
                 </button>
               ))
             ) : (
-              <p className="py-3 text-center text-xs text-slate-400">Tidak ada hasil cocok</p>
+              <p className="py-3 text-center text-sm text-slate-400">Tidak ada hasil cocok</p>
             )}
           </div>
         </div>
@@ -2482,8 +2514,18 @@ function SearchableSelect({
 function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void; onDelete: (collection: 'packages' | 'schedules' | 'gallery', id: string) => void }) {
   const [search, setSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('Semua')
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
+  const [sortOrder, setSortOrder] = useState<'default' | 'asc' | 'desc'>('default')
   const [currentPage, setCurrentPage] = useState(1)
+
+  // Otomatis reset ke urutan data terbaru (default) saat ada paket baru ditambahkan
+  const prevCountRef = useRef(store.packages.length)
+  useEffect(() => {
+    if (store.packages.length > prevCountRef.current) {
+      setSortOrder('default')
+      setCurrentPage(1)
+    }
+    prevCountRef.current = store.packages.length
+  }, [store.packages.length])
 
   const filteredAndSorted = useMemo(() => {
     let list = store.packages
@@ -2498,6 +2540,9 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
         p.category.toLowerCase().includes(q) ||
         (p.badge && p.badge.toLowerCase().includes(q))
       )
+    }
+    if (sortOrder === 'default') {
+      return list
     }
     return [...list].sort((a, b) => {
       const cmp = a.name.localeCompare(b.name, 'id', { sensitivity: 'base' })
@@ -2518,7 +2563,7 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
         <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">Atur layanan, harga, dan informasi katalog publik.</p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap">
+      <div className="flex flex-col sm:flex-row flex-wrap items-center gap-2 lg:flex-nowrap w-full lg:w-auto">
         {/* Searching */}
         <div className="relative w-full sm:w-56 lg:w-64">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -2526,7 +2571,7 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
             value={search}
             onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
             placeholder="Cari paket atau layanan..."
-            className="field !py-2 !pl-9 !pr-7 !text-xs sm:!text-sm"
+            className="field !py-2.5 !pl-9 !pr-7 text-sm min-h-[42px]"
           />
           {search && (
             <button
@@ -2539,27 +2584,30 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
           )}
         </div>
 
-        {/* Filter Kategori */}
-        <SearchableSelect
-          options={['Semua Kategori', ...store.categories.map((c) => c.name)]}
-          value={selectedCategory === 'Semua' ? 'Semua Kategori' : selectedCategory}
-          onChange={(val) => {
-            setSelectedCategory(val === 'Semua Kategori' ? 'Semua' : val)
-            setCurrentPage(1)
-          }}
-          placeholder="Filter Kategori"
-          searchPlaceholder="Cari kategori..."
-          className="w-full sm:w-44 shrink-0"
-          buttonClassName="!py-2 !text-xs sm:!text-sm"
-        />
+        {/* Filter Kategori & Tombol Tambah Paket (Berdampingan di Mobile) */}
+        <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center">
+          {/* Filter Kategori */}
+          <SearchableSelect
+            options={['Semua Kategori', ...store.categories.map((c) => c.name)]}
+            value={selectedCategory === 'Semua' ? 'Semua Kategori' : selectedCategory}
+            onChange={(val) => {
+              setSelectedCategory(val === 'Semua Kategori' ? 'Semua' : val)
+              setCurrentPage(1)
+            }}
+            placeholder="Filter Kategori"
+            searchPlaceholder="Cari kategori..."
+            className="w-full sm:w-52 shrink-0"
+            buttonClassName="h-[42px] min-h-[42px] px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-200 bg-white hover:border-rose-200 hover:bg-slate-50 text-slate-700 shadow-2xs"
+          />
 
-        {/* Tombol Tambah Paket */}
-        <button
-          onClick={() => onOpen('package')}
-          className="btn-primary !px-4 !py-2 text-xs sm:!py-2.5 sm:text-sm shrink-0 whitespace-nowrap"
-        >
-          <Plus size={16} />Tambah paket
-        </button>
+          {/* Tombol Tambah Paket */}
+          <button
+            onClick={() => onOpen('package')}
+            className="btn-primary !px-3 sm:!px-4 !py-2.5 text-sm min-h-[42px] shrink-0 whitespace-nowrap justify-center w-full sm:w-auto"
+          >
+            <Plus size={16} />Tambah paket
+          </button>
+        </div>
       </div>
     </div>
 
@@ -2607,12 +2655,15 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
             <tr className="border-y border-slate-100 text-[11px] uppercase tracking-wider text-slate-500">
               <th
                 className="py-3 pr-4 font-semibold cursor-pointer select-none hover:text-rose-600"
-                onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
-                title="Klik untuk mengubah urutan"
+                onClick={() => {
+                  setSortOrder((prev) => (prev === 'default' ? 'asc' : prev === 'asc' ? 'desc' : 'asc'))
+                  setCurrentPage(1)
+                }}
+                title={sortOrder === 'default' ? 'Urutan: Data Terbaru (Klik untuk A-Z)' : sortOrder === 'asc' ? 'Urutan: A-Z (Klik untuk Z-A)' : 'Urutan: Z-A (Klik untuk A-Z)'}
               >
                 <div className="flex items-center gap-1.5">
                   <span>PAKET</span>
-                  <ChevronsUpDown size={14} className={sortOrder === 'asc' ? 'text-rose-600' : 'text-slate-400'} />
+                  <ChevronsUpDown size={14} className={sortOrder !== 'default' ? 'text-rose-600' : 'text-slate-400'} />
                 </div>
               </th>
               <th className="px-4 py-3 font-semibold">Kategori</th>
@@ -2675,14 +2726,27 @@ function CategoriesManager({ store, onOpen, onRemove }: {
   onRemove: (category: Category) => void
 }) {
   const [search, setSearch] = useState('')
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
+  const [sortOrder, setSortOrder] = useState<'default' | 'asc' | 'desc'>('default')
   const [currentPage, setCurrentPage] = useState(1)
+
+  // Otomatis reset ke urutan data terbaru (default) saat ada kategori baru ditambahkan
+  const prevCountRef = useRef(store.categories.length)
+  useEffect(() => {
+    if (store.categories.length > prevCountRef.current) {
+      setSortOrder('default')
+      setCurrentPage(1)
+    }
+    prevCountRef.current = store.categories.length
+  }, [store.categories.length])
 
   const filteredAndSorted = useMemo(() => {
     let list = store.categories
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter((c) => c.name.toLowerCase().includes(q) || c.slug.toLowerCase().includes(q))
+    }
+    if (sortOrder === 'default') {
+      return list
     }
     return [...list].sort((a, b) => {
       const cmp = a.name.localeCompare(b.name, 'id', { sensitivity: 'base' })
@@ -2703,7 +2767,7 @@ function CategoriesManager({ store, onOpen, onRemove }: {
         <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">Atur jenis kategori bisnis</p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap w-full sm:w-auto">
         {/* Searching */}
         <div className="relative w-full sm:w-64">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -2711,7 +2775,7 @@ function CategoriesManager({ store, onOpen, onRemove }: {
             value={search}
             onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
             placeholder="Cari kategori..."
-            className="field !py-2 !pl-9 !pr-7 !text-xs sm:!text-sm"
+            className="field !py-2.5 !pl-9 !pr-7 text-sm min-h-[42px]"
           />
           {search && (
             <button
@@ -2727,7 +2791,7 @@ function CategoriesManager({ store, onOpen, onRemove }: {
         {/* Tombol Tambah Kategori */}
         <button
           onClick={() => onOpen('category')}
-          className="btn-primary !px-4 !py-2 text-xs sm:!py-2.5 sm:text-sm shrink-0 whitespace-nowrap"
+          className="btn-primary !px-4 !py-2.5 text-sm min-h-[42px] shrink-0 whitespace-nowrap w-full sm:w-auto justify-center"
         >
           <Plus size={16} />Tambah kategori
         </button>
@@ -2742,12 +2806,15 @@ function CategoriesManager({ store, onOpen, onRemove }: {
               <tr className="border-b border-slate-100 bg-slate-50/50 text-[11px] uppercase tracking-wider text-slate-500">
                 <th
                   className="py-3 px-4 font-semibold cursor-pointer select-none hover:text-rose-600"
-                  onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
-                  title="Klik untuk mengubah urutan"
+                  onClick={() => {
+                    setSortOrder((prev) => (prev === 'default' ? 'asc' : prev === 'asc' ? 'desc' : 'asc'))
+                    setCurrentPage(1)
+                  }}
+                  title={sortOrder === 'default' ? 'Urutan: Data Terbaru (Klik untuk A-Z)' : sortOrder === 'asc' ? 'Urutan: A-Z (Klik untuk Z-A)' : 'Urutan: Z-A (Klik untuk A-Z)'}
                 >
                   <div className="flex items-center gap-1.5">
                     <span>KATEGORI</span>
-                    <ChevronsUpDown size={14} className={sortOrder === 'asc' ? 'text-rose-600' : 'text-slate-400'} />
+                    <ChevronsUpDown size={14} className={sortOrder !== 'default' ? 'text-rose-600' : 'text-slate-400'} />
                   </div>
                 </th>
                 <th className="hidden sm:table-cell py-3 px-4 font-semibold">PAKET TERKAIT</th>
@@ -2815,18 +2882,21 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
   const [historyMonth, setHistoryMonth] = useState('Semua Bulan')
   const [historyYear, setHistoryYear] = useState('Semua Tahun')
   const [search, setSearch] = useState('')
-  const [sortBy, setSortBy] = useState<'eventDate' | 'clientName' | 'status'>('eventDate')
+  const [sortBy, setSortBy] = useState<'default' | 'name' | 'date' | 'status'>('default')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const [currentPage, setCurrentPage] = useState(1)
   const [historyPage, setHistoryPage] = useState(1)
 
-  // Prioritas urutan status: Lunas -> Menunggu DP -> Terkonfirmasi -> Menunggu Konfirmasi
-  const STATUS_PRIORITY: Record<string, number> = {
-    'Lunas': 1,
-    'Menunggu DP': 2,
-    'Terkonfirmasi': 3,
-    'Menunggu Konfirmasi': 4,
-  }
+  // Otomatis reset ke urutan data terbaru (default) saat ada jadwal baru ditambahkan
+  const prevCountRef = useRef(store.schedules.length)
+  useEffect(() => {
+    if (store.schedules.length > prevCountRef.current) {
+      setSortBy('default')
+      setCurrentPage(1)
+      setHistoryPage(1)
+    }
+    prevCountRef.current = store.schedules.length
+  }, [store.schedules.length])
 
   // Ekstrak daftar tahun yang tersedia dari jadwal
   const availableYears = useMemo(() => {
@@ -2840,9 +2910,9 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
     return Array.from(years).sort().reverse()
   }, [store.schedules])
 
-  // Filter daftar jadwal aktif
+  // Filter daftar jadwal aktif (hanya booking yang belum lunas)
   const filteredAndSorted = useMemo(() => {
-    let list = store.schedules
+    let list = store.schedules.filter((s) => s.status !== 'Lunas')
     if (selectedMonth !== 'Semua Bulan') {
       const mIdx = MONTH_NAMES.indexOf(selectedMonth as any) + 1
       const mStr = mIdx < 10 ? `0${mIdx}` : `${mIdx}`
@@ -2862,33 +2932,25 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
         (s.whatsapp && s.whatsapp.includes(q))
       )
     }
+    if (sortBy === 'default') {
+      return list
+    }
     return [...list].sort((a, b) => {
-      if (sortBy === 'eventDate') {
-        const dateA = `${a.eventDate || ''}T${a.eventTime || '00:00'}`
-        const dateB = `${b.eventDate || ''}T${b.eventTime || '00:00'}`
+      if (sortBy === 'date') {
+        const dateA = `${a.eventDate || ''} ${a.eventTime || ''}`
+        const dateB = `${b.eventDate || ''} ${b.eventTime || ''}`
         const cmp = dateA.localeCompare(dateB)
-        if (cmp !== 0) {
-          return sortOrder === 'asc' ? cmp : -cmp
+        return sortOrder === 'asc' ? cmp : -cmp
+      }
+      if (sortBy === 'status') {
+        const statusCmp = a.status.localeCompare(b.status, 'id', { sensitivity: 'base' })
+        if (statusCmp !== 0) {
+          return sortOrder === 'asc' ? statusCmp : -statusCmp
         }
         return a.clientName.localeCompare(b.clientName, 'id', { sensitivity: 'base' })
       }
-      if (sortBy === 'status') {
-        const pA = STATUS_PRIORITY[a.status] ?? 99
-        const pB = STATUS_PRIORITY[b.status] ?? 99
-        if (pA !== pB) {
-          return sortOrder === 'asc' ? pA - pB : pB - pA
-        }
-        const dateA = `${a.eventDate || ''}T${a.eventTime || '00:00'}`
-        const dateB = `${b.eventDate || ''}T${b.eventTime || '00:00'}`
-        return dateA.localeCompare(dateB)
-      }
       const cmp = a.clientName.localeCompare(b.clientName, 'id', { sensitivity: 'base' })
-      if (cmp !== 0) {
-        return sortOrder === 'asc' ? cmp : -cmp
-      }
-      const dateA = `${a.eventDate || ''}T${a.eventTime || '00:00'}`
-      const dateB = `${b.eventDate || ''}T${b.eventTime || '00:00'}`
-      return dateA.localeCompare(dateB)
+      return sortOrder === 'asc' ? cmp : -cmp
     })
   }, [store.schedules, selectedMonth, selectedYear, search, sortBy, sortOrder])
 
@@ -2904,7 +2966,8 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
 
   // Data history booking disaring berdasarkan 2 filter: Bulan & Tahun
   const activeHistoryData = useMemo(() => {
-    let items = store.schedules
+    // Riwayat booking hanya menampilkan pesanan yang sudah berstatus 'Lunas'
+    let items = store.schedules.filter((s) => s.status === 'Lunas')
     if (historyMonth !== 'Semua Bulan') {
       const mIdx = MONTH_NAMES.indexOf(historyMonth as any) + 1
       const mStr = mIdx < 10 ? `0${mIdx}` : `${mIdx}`
@@ -2915,11 +2978,10 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
     }
     items = [...items].sort((a, b) => (b.eventDate || '').localeCompare(a.eventDate || ''))
 
-    const lunasItems = items.filter((s) => s.status === 'Lunas')
-    const totalRevenue = lunasItems.reduce((acc, s) => acc + getBookingPrice(s, store.packages), 0)
+    const totalRevenue = items.reduce((acc, s) => acc + getBookingPrice(s, store.packages), 0)
     const periodLabel = `${historyMonth !== 'Semua Bulan' ? historyMonth : ''} ${historyYear !== 'Semua Tahun' ? historyYear : (historyMonth === 'Semua Bulan' ? 'Semua Waktu' : '')}`.trim()
 
-    return { items, lunasItems, totalRevenue, periodLabel }
+    return { items, lunasItems: items, totalRevenue, periodLabel }
   }, [store.schedules, store.packages, historyMonth, historyYear])
 
   const historyTotalItems = activeHistoryData.items.length
@@ -2929,12 +2991,12 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
 
   return <>
     {/* Sub-tab Navigation: Daftar Booking vs History Booking */}
-    <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3.5">
-      <div className="flex items-center gap-2">
+    <div className="mb-5 border-b border-slate-100 pb-3.5 w-full">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 w-full">
         <button
           type="button"
           onClick={() => setScheduleView('list')}
-          className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-bold transition ${
+          className={`flex items-center justify-center gap-2 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-bold transition w-full ${
             scheduleView === 'list'
               ? 'bg-rose-500 text-white shadow-xs'
               : 'border border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:text-rose-600'
@@ -2946,7 +3008,7 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
         <button
           type="button"
           onClick={() => setScheduleView('history')}
-          className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs sm:text-sm font-bold transition ${
+          className={`flex items-center justify-center gap-2 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm font-bold transition w-full ${
             scheduleView === 'history'
               ? 'bg-rose-500 text-white shadow-xs'
               : 'border border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:text-rose-600'
@@ -2973,7 +3035,7 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
             </div>
           </div>
 
-          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
+          <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center">
             {/* Filter 1: Bulan */}
             <SearchableSelect
               options={['Semua Bulan', ...MONTH_NAMES]}
@@ -2984,8 +3046,8 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
               }}
               placeholder="Pilih Bulan"
               searchPlaceholder="Cari bulan..."
-              className="w-full sm:w-44 shrink-0"
-              buttonClassName="!py-2 !text-xs sm:!text-sm bg-white shadow-xs"
+              className="w-full sm:w-48 shrink-0"
+              buttonClassName="h-[42px] min-h-[42px] px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-200 bg-white hover:border-rose-200 hover:bg-slate-50 text-slate-700 shadow-2xs"
             />
 
             {/* Filter 2: Tahun */}
@@ -2998,14 +3060,14 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
               }}
               placeholder="Pilih Tahun"
               searchPlaceholder="Cari tahun..."
-              className="w-full sm:w-36 shrink-0"
-              buttonClassName="!py-2 !text-xs sm:!text-sm bg-white shadow-xs"
+              className="w-full sm:w-44 shrink-0"
+              buttonClassName="h-[42px] min-h-[42px] px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-200 bg-white hover:border-rose-200 hover:bg-slate-50 text-slate-700 shadow-2xs"
             />
           </div>
         </div>
 
         {/* Ringkasan Pendapatan (Status Lunas) Berdasarkan Filter Bulan & Tahun */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="rounded-2xl border border-emerald-200/80 bg-gradient-to-br from-emerald-500 to-teal-700 p-4 text-white shadow-sm">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-100">
@@ -3036,28 +3098,11 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
               {activeHistoryData.lunasItems.length} Booking
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Dari total {activeHistoryData.items.length} booking pada periode ini
+              Booking berstatus lunas pada periode ini
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs sm:col-span-2 lg:col-span-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                Rata-rata / Booking
-              </span>
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                <Clock3 size={15} />
-              </span>
-            </div>
-            <p className="mt-2 text-2xl font-black text-slate-900 tracking-tight">
-              {activeHistoryData.lunasItems.length > 0
-                ? rupiah(Math.round(activeHistoryData.totalRevenue / activeHistoryData.lunasItems.length))
-                : 'Rp 0'}
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              Dihitung dari pesanan yang sudah lunas
-            </p>
-          </div>
+          
         </div>
 
         {/* Tabel Tunggal Riwayat Reservasi (Disesuaikan dengan Filter Bulan & Tahun) */}
@@ -3111,7 +3156,18 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
                   {paginatedHistoryItems.map((item) => (
-                    <tr key={item.id} className="hover:bg-rose-50/20 transition">
+                    <tr
+                      key={item.id}
+                      tabIndex={0}
+                      onClick={() => setSelectedSchedule(item)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          setSelectedSchedule(item)
+                        }
+                      }}
+                      className="cursor-pointer hover:bg-rose-50/50 focus:bg-rose-50/50 focus:outline-none transition"
+                    >
                       <td className="py-3 px-4 font-semibold text-slate-700 whitespace-nowrap">
                         {formatDate(item.eventDate)} {item.eventTime ? `· ${item.eventTime} WIB` : ''}
                       </td>
@@ -3138,7 +3194,10 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
                       <td className="py-3 px-4 text-right whitespace-nowrap">
                         <button
                           type="button"
-                          onClick={() => setSelectedSchedule(item)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setSelectedSchedule(item)
+                          }}
                           className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 transition shadow-2xs"
                         >
                           Detail
@@ -3166,7 +3225,7 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
         ) : (
           <div className="rounded-2xl border border-dashed border-slate-200 py-12 text-center bg-white">
             <CalendarDays className="mx-auto mb-2 text-slate-400" size={24} />
-            <p className="text-sm font-semibold text-slate-700">Belum ada riwayat booking pada periode ini</p>
+            <p className="text-sm font-semibold text-slate-700">Belum ada riwayat booking lunas pada periode ini</p>
             <p className="mt-1 text-xs text-slate-500">Pilih periode bulan atau tahun lain pada dropdown filter di atas.</p>
           </div>
         )}
@@ -3181,43 +3240,46 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
             <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">Berikut booking pelanggan</p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap">
-            {/* Filter 1: Bulan */}
-            <SearchableSelect
-              options={['Semua Bulan', ...MONTH_NAMES]}
-              value={selectedMonth}
-              onChange={(val) => {
-                setSelectedMonth(val)
-                setCurrentPage(1)
-              }}
-              placeholder="Pilih Bulan"
-              searchPlaceholder="Cari bulan..."
-              className="w-full sm:w-44 shrink-0"
-              buttonClassName="!py-2 !text-xs sm:!text-sm"
-            />
+          <div className="flex flex-col lg:flex-row flex-wrap items-center gap-2 lg:flex-nowrap w-full lg:w-auto">
+            {/* Filter Bulan dan Tahun (Kanan Kiri / 2 Kolom di Mobile & Tablet) */}
+            <div className="grid grid-cols-2 gap-2 w-full lg:w-auto lg:flex lg:items-center">
+              {/* Filter 1: Bulan */}
+              <SearchableSelect
+                options={['Semua Bulan', ...MONTH_NAMES]}
+                value={selectedMonth}
+                onChange={(val) => {
+                  setSelectedMonth(val)
+                  setCurrentPage(1)
+                }}
+                placeholder="Pilih Bulan"
+                searchPlaceholder="Cari bulan..."
+                className="w-full lg:w-48 shrink-0"
+                buttonClassName="h-[42px] min-h-[42px] px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-200 bg-white hover:border-rose-200 hover:bg-slate-50 text-slate-700 shadow-2xs"
+              />
 
-            {/* Filter 2: Tahun */}
-            <SearchableSelect
-              options={['Semua Tahun', ...availableYears]}
-              value={selectedYear}
-              onChange={(val) => {
-                setSelectedYear(val)
-                setCurrentPage(1)
-              }}
-              placeholder="Pilih Tahun"
-              searchPlaceholder="Cari tahun..."
-              className="w-full sm:w-36 shrink-0"
-              buttonClassName="!py-2 !text-xs sm:!text-sm"
-            />
+              {/* Filter 2: Tahun */}
+              <SearchableSelect
+                options={['Semua Tahun', ...availableYears]}
+                value={selectedYear}
+                onChange={(val) => {
+                  setSelectedYear(val)
+                  setCurrentPage(1)
+                }}
+                placeholder="Pilih Tahun"
+                searchPlaceholder="Cari tahun..."
+                className="w-full lg:w-44 shrink-0"
+                buttonClassName="h-[42px] min-h-[42px] px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-200 bg-white hover:border-rose-200 hover:bg-slate-50 text-slate-700 shadow-2xs"
+              />
+            </div>
 
             {/* Searching */}
-            <div className="relative w-full sm:w-52 lg:w-60">
+            <div className="relative w-full lg:w-60">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
                 placeholder="Cari pelanggan, paket, lokasi..."
-                className="field !py-2 !pl-9 !pr-7 !text-xs sm:!text-sm"
+                className="field !py-2.5 !pl-9 !pr-7 text-sm min-h-[42px] h-[42px] !rounded-xl"
               />
               {search && (
                 <button
@@ -3230,10 +3292,10 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
               )}
             </div>
 
-            {/* Tombol Tambah Jadwal */}
+            {/* Tombol Tambah Jadwal (Panjang sampai kanan-kiri di mobile) */}
             <button
               onClick={() => onOpen('schedule')}
-              className="btn-primary !px-4 !py-2 text-xs sm:!py-2.5 sm:text-sm shrink-0 whitespace-nowrap"
+              className="btn-primary !px-4 !py-2.5 text-sm min-h-[42px] h-[42px] shrink-0 whitespace-nowrap w-full lg:w-auto justify-center rounded-xl"
             >
               <Plus size={16} />Tambah jadwal
             </button>
@@ -3241,6 +3303,73 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
         </div>
 
         {paginated.length ? <>
+          {/* Mobile Sort Options */}
+          <div className="mb-3 flex items-center justify-between gap-2 px-0.5 md:hidden">
+            <span className="text-xs font-medium text-slate-500">Urutkan:</span>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  if (sortBy === 'name') {
+                    setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+                  } else {
+                    setSortBy('name')
+                    setSortOrder('asc')
+                  }
+                  setCurrentPage(1)
+                }}
+                className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
+                  sortBy === 'name'
+                    ? 'border-rose-300 bg-rose-50 text-rose-700'
+                    : 'border-slate-200 bg-white text-slate-600'
+                }`}
+              >
+                <span>Nama</span>
+                <ChevronsUpDown size={12} className={sortBy === 'name' ? 'text-rose-600' : 'text-slate-400'} />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (sortBy === 'date') {
+                    setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+                  } else {
+                    setSortBy('date')
+                    setSortOrder('asc')
+                  }
+                  setCurrentPage(1)
+                }}
+                className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
+                  sortBy === 'date'
+                    ? 'border-rose-300 bg-rose-50 text-rose-700'
+                    : 'border-slate-200 bg-white text-slate-600'
+                }`}
+              >
+                <span>Pelaksanaan</span>
+                <ChevronsUpDown size={12} className={sortBy === 'date' ? 'text-rose-600' : 'text-slate-400'} />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (sortBy === 'status') {
+                    setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))
+                  } else {
+                    setSortBy('status')
+                    setSortOrder('asc')
+                  }
+                  setCurrentPage(1)
+                }}
+                className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
+                  sortBy === 'status'
+                    ? 'border-rose-300 bg-rose-50 text-rose-700'
+                    : 'border-slate-200 bg-white text-slate-600'
+                }`}
+              >
+                <span>Status</span>
+                <ChevronsUpDown size={12} className={sortBy === 'status' ? 'text-rose-600' : 'text-slate-400'} />
+              </button>
+            </div>
+          </div>
+
           <div className="grid gap-3 md:hidden">
             {paginated.map((item) => {
               const collisions = store.schedules.filter((other) => other.id !== item.id && hasScheduleCollision(other, item))
@@ -3263,44 +3392,44 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
               <thead>
                 <tr className="border-y border-slate-100 text-[11px] uppercase tracking-wider text-slate-500">
                   <th
-                    className="py-3 pr-4 font-semibold cursor-pointer select-none hover:text-rose-600"
+                    className="py-3 pr-4 font-semibold cursor-pointer select-none hover:text-rose-600 transition"
                     onClick={() => {
-                      if (sortBy === 'clientName') {
+                      if (sortBy === 'name') {
                         setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc')
                       } else {
-                        setSortBy('clientName')
+                        setSortBy('name')
                         setSortOrder('asc')
                       }
                       setCurrentPage(1)
                     }}
-                    title="Klik untuk mengurutkan berdasarkan nama pelanggan (A-Z / Z-A)"
+                    title="Klik untuk mengurutkan berdasarkan nama pelanggan"
                   >
                     <div className="flex items-center gap-1.5">
                       <span>NAMA PELANGGAN</span>
-                      <ChevronsUpDown size={14} className={sortBy === 'clientName' ? 'text-rose-600' : 'text-slate-400'} />
+                      <ChevronsUpDown size={14} className={sortBy === 'name' ? 'text-rose-600' : 'text-slate-400'} />
                     </div>
                   </th>
                   <th
-                    className="px-4 py-3 font-semibold cursor-pointer select-none hover:text-rose-600"
+                    className="px-4 py-3 font-semibold cursor-pointer select-none hover:text-rose-600 transition"
                     onClick={() => {
-                      if (sortBy === 'eventDate') {
-                        setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc')
+                      if (sortBy === 'date') {
+                        setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))
                       } else {
-                        setSortBy('eventDate')
+                        setSortBy('date')
                         setSortOrder('asc')
                       }
                       setCurrentPage(1)
                     }}
-                    title="Klik untuk mengurutkan berdasarkan tanggal pelaksanaan (terdekat / terjauh)"
+                    title="Klik untuk mengurutkan berdasarkan tanggal pelaksanaan (ASC: Terdekat, DESC: Terjauh)"
                   >
                     <div className="flex items-center gap-1.5">
                       <span>PELAKSANAAN</span>
-                      <ChevronsUpDown size={14} className={sortBy === 'eventDate' ? 'text-rose-600' : 'text-slate-400'} />
+                      <ChevronsUpDown size={14} className={sortBy === 'date' ? 'text-rose-600' : 'text-slate-400'} />
                     </div>
                   </th>
                   <th className="px-4 py-3 font-semibold">Paket</th>
                   <th
-                    className="px-4 py-3 font-semibold cursor-pointer select-none hover:text-rose-600"
+                    className="px-4 py-3 font-semibold cursor-pointer select-none hover:text-rose-600 transition"
                     onClick={() => {
                       if (sortBy === 'status') {
                         setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc')
@@ -3310,7 +3439,7 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
                       }
                       setCurrentPage(1)
                     }}
-                    title="Klik untuk mengurutkan status (Lunas, Menunggu DP, Terkonfirmasi, Menunggu Konfirmasi)"
+                    title="Klik untuk mengurutkan berdasarkan status booking"
                   >
                     <div className="flex items-center gap-1.5">
                       <span>STATUS</span>
@@ -3357,7 +3486,14 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
         )}
       </>
     )}
-    {selectedSchedule && <ScheduleDetailsModal schedule={selectedSchedule} collisions={store.schedules.filter((item) => item.id !== selectedSchedule.id && hasScheduleCollision(item, selectedSchedule))} onClose={() => setSelectedSchedule(null)} onEdit={() => editSchedule(selectedSchedule)} />}
+    {selectedSchedule && (
+      <ScheduleDetailsModal
+        schedule={selectedSchedule}
+        collisions={scheduleView === 'history' ? [] : store.schedules.filter((item) => item.id !== selectedSchedule.id && hasScheduleCollision(item, selectedSchedule))}
+        onClose={() => setSelectedSchedule(null)}
+        onEdit={scheduleView === 'history' ? undefined : () => editSchedule(selectedSchedule)}
+      />
+    )}
   </>
 }
 
@@ -3366,7 +3502,7 @@ function StatusBadge({ status }: { status: Schedule['status'] }) {
   return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${cls}`}>{status}</span>
 }
 
-function ScheduleDetailsModal({ schedule, collisions, onClose, onEdit }: { schedule: Schedule; collisions: Schedule[]; onClose: () => void; onEdit: () => void }) {
+function ScheduleDetailsModal({ schedule, collisions, onClose, onEdit }: { schedule: Schedule; collisions: Schedule[]; onClose: () => void; onEdit?: () => void }) {
   return <ModalFrame onClose={onClose}>
     <div className="mb-5 flex items-start justify-between gap-4">
       <div><p className="text-xs font-bold uppercase tracking-widest text-rose-600">Detail booking</p><h2 className="mt-1 text-2xl font-bold text-slate-900">{schedule.clientName}</h2></div>
@@ -3378,39 +3514,50 @@ function ScheduleDetailsModal({ schedule, collisions, onClose, onEdit }: { sched
       <div><p className="text-xs font-semibold text-slate-500">Status</p><div className="mt-2"><StatusBadge status={schedule.status} /></div></div>
       <div><p className="text-xs font-semibold text-slate-500">Paket</p><p className="mt-1 font-bold text-slate-900">{schedule.packageName}</p></div>
       <div><p className="text-xs font-semibold text-slate-500">Lokasi</p><p className="mt-1 font-semibold text-slate-800">{schedule.location || 'Belum diisi'}</p></div>
-      {schedule.whatsapp && <div className="sm:col-span-2"><p className="text-xs font-semibold text-slate-500">WhatsApp</p><a className="mt-1 inline-flex font-semibold text-emerald-700 hover:underline" href={whatsappLink(schedule.whatsapp)} target="_blank" rel="noreferrer">+{normalizePhone(schedule.whatsapp)}</a></div>}
+      {schedule.whatsapp && <div className="sm:col-span-2"><p className="text-xs font-semibold text-slate-500">WhatsApp</p><a className="mt-1 inline-flex font-semibold text-emerald-700 hover:underline" href={`https://wa.me/${schedule.whatsapp}`} target="_blank" rel="noreferrer">+{schedule.whatsapp}</a></div>}
       <div className="sm:col-span-2"><p className="text-xs font-semibold text-slate-500">Catatan</p><p className="mt-1 whitespace-pre-wrap font-medium text-slate-800">{schedule.notes || 'Tidak ada catatan.'}</p></div>
     </div>
-    <div className="mt-5 flex justify-end"><button type="button" onClick={onEdit} className="btn-primary"><Edit3 size={16} />Edit jadwal</button></div>
+    <div className="mt-5 flex justify-end">
+      {onEdit ? (
+        <button type="button" onClick={onEdit} className="btn-primary"><Edit3 size={16} />Edit jadwal</button>
+      ) : (
+        <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">Tutup</button>
+      )}
+    </div>
   </ModalFrame>
 }
 
 function GalleryManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void; onDelete: (collection: 'packages' | 'schedules' | 'gallery', id: string) => void }) {
   const [search, setSearch] = useState('')
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const [currentPage, setCurrentPage] = useState(1)
 
-  const filteredAndSorted = useMemo(() => {
+  // Otomatis reset ke halaman pertama saat ada foto portfolio baru ditambahkan
+  const prevCountRef = useRef(store.gallery.length)
+  useEffect(() => {
+    if (store.gallery.length > prevCountRef.current) {
+      setCurrentPage(1)
+    }
+    prevCountRef.current = store.gallery.length
+  }, [store.gallery.length])
+
+  const filtered = useMemo(() => {
     let list = store.gallery
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter((g) =>
         g.title.toLowerCase().includes(q) ||
-        g.eventType.toLowerCase().includes(q) ||
+        (g.category && g.category.toLowerCase().includes(q)) || (g.eventType && g.eventType.toLowerCase().includes(q)) ||
         g.tag.toLowerCase().includes(q) ||
         g.description.toLowerCase().includes(q)
       )
     }
-    return [...list].sort((a, b) => {
-      const cmp = a.title.localeCompare(b.title, 'id', { sensitivity: 'base' })
-      return sortOrder === 'asc' ? cmp : -cmp
-    })
-  }, [store.gallery, search, sortOrder])
+    return list
+  }, [store.gallery, search])
 
-  const totalItems = filteredAndSorted.length
+  const totalItems = filtered.length
   const totalPages = Math.ceil(totalItems / 6) || 1
   const validPage = Math.min(currentPage, totalPages)
-  const paginated = filteredAndSorted.slice((validPage - 1) * 6, validPage * 6)
+  const paginated = filtered.slice((validPage - 1) * 6, validPage * 6)
 
   return <>
     {/* Header & Toolbar: Searching di sebelah kiri tombol Tambah Foto (Semua 1 baris) */}
@@ -3427,7 +3574,7 @@ function GalleryManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen
             value={search}
             onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
             placeholder="Cari foto, momen, tag..."
-            className="field !py-2 !pl-9 !pr-7 !text-xs sm:!text-sm"
+            className="field !py-2.5 !pl-9 !pr-7 text-xs sm:text-sm min-h-[42px]"
           />
           {search && (
             <button
@@ -3443,7 +3590,7 @@ function GalleryManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen
         {/* Tombol Tambah Foto */}
         <button
           onClick={() => onOpen('gallery')}
-          className="btn-primary !px-4 !py-2 text-xs sm:!py-2.5 sm:text-sm shrink-0 whitespace-nowrap"
+          className="btn-primary !px-4 !py-2.5 text-xs sm:text-sm min-h-[42px] shrink-0 whitespace-nowrap"
         >
           <Plus size={16} />Tambah foto
         </button>
@@ -3451,23 +3598,12 @@ function GalleryManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen
     </div>
 
     {paginated.length ? <>
-      <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-        <button
-          type="button"
-          onClick={() => { setSortOrder((prev) => prev === 'asc' ? 'desc' : 'asc'); setCurrentPage(1); }}
-          className="flex items-center gap-1.5 cursor-pointer select-none hover:text-rose-600"
-          title="Klik untuk mengubah urutan"
-        >
-          <span>PORTFOLIO</span>
-          <ChevronsUpDown size={14} className={sortOrder === 'asc' ? 'text-rose-600' : 'text-slate-400'} />
-        </button>
-      </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {paginated.map((item) => (
           <article key={item.id} className="overflow-hidden rounded-xl border border-slate-200">
             <div className="relative h-40">
               <img src={item.imageUrl} alt={item.title} className="h-full w-full object-cover" />
-              <span className="absolute bottom-2 left-2 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-700">{item.eventType}</span>
+              <span className="absolute bottom-2 left-2 rounded-full bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-700">{item.category || item.eventType}</span>
             </div>
             <div className="flex items-center justify-between p-3">
               <div className="min-w-0">
@@ -3510,6 +3646,16 @@ function CertificatesManager({
   onDelete: (collection: 'packages' | 'schedules' | 'gallery' | 'certificates', id: string) => void
 }) {
   const [currentPage, setCurrentPage] = useState(1)
+
+  // Otomatis reset ke halaman pertama saat ada sertifikat baru ditambahkan
+  const prevCountRef = useRef(store.certificates.length)
+  useEffect(() => {
+    if (store.certificates.length > prevCountRef.current) {
+      setCurrentPage(1)
+    }
+    prevCountRef.current = store.certificates.length
+  }, [store.certificates.length])
+
   const pageSize = 6
   const totalItems = store.certificates.length
   const totalPages = Math.ceil(totalItems / pageSize) || 1
@@ -3606,6 +3752,17 @@ function FaqManager({
   const [searchQuery, setSearchQuery] = useState('')
   const pageSize = 6
 
+  // Otomatis reset ke data terbaru dan halaman pertama saat ada FAQ baru ditambahkan
+  const prevCountRef = useRef(store.faqs.length)
+  useEffect(() => {
+    if (store.faqs.length > prevCountRef.current) {
+      setCategoryFilter('Semua')
+      setSearchQuery('')
+      setCurrentPage(1)
+    }
+    prevCountRef.current = store.faqs.length
+  }, [store.faqs.length])
+
   const categories = useMemo(() => {
     const list = Array.from(new Set(store.faqs.map((f) => f.category).filter(Boolean)))
     return ['Semua', ...list]
@@ -3670,7 +3827,7 @@ function FaqManager({
             value={searchQuery}
             onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
             placeholder="Cari FAQ..."
-            className="w-full rounded-xl border border-slate-200 bg-white py-1.5 pl-9 pr-3 text-xs text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:outline-none focus:ring-1 focus:ring-rose-200"
+            className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-xs sm:text-sm min-h-[42px] text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:outline-none focus:ring-1 focus:ring-rose-200"
           />
         </div>
       </div>
@@ -3754,21 +3911,16 @@ function FaqManager({
   )
 }
 
-function SettingsManager({ store, onSave, onLogout }: { store: SalonStore; onSave: (event: FormEvent<HTMLFormElement>) => void; onLogout: () => void }) {
+function SettingsManager({ store, onSave }: { store: SalonStore; onSave: (event: FormEvent<HTMLFormElement>) => void }) {
   return <>
-    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <h2 className="text-lg font-bold text-slate-900">Pengaturan Akun</h2>
-        <p className="mt-1 text-sm font-medium text-slate-600">Informasi profil admin</p>
-      </div>
-      <button type="button" onClick={onLogout} className="btn-secondary !px-4 !py-2.5">
-        <LogOut size={16} />Keluar dari akun
-      </button>
+    <div className="mb-5">
+      <h2 className="text-lg font-bold text-slate-900">Pengaturan Akun</h2>
+      <p className="mt-1 text-sm font-medium text-slate-600">Informasi profil admin</p>
     </div>
     <form onSubmit={onSave} className="grid gap-x-5 gap-y-4 md:grid-cols-2">
       <div><label className="label" htmlFor="studio-name">Nama salon</label><input id="studio-name" className="field bg-slate-50" value={store.profile.name} readOnly /></div>
       <div><label className="label" htmlFor="studio-tag">Tagline</label><input id="studio-tag" className="field bg-slate-50" value={store.profile.tag} readOnly /></div>
-      <div><label className="label" htmlFor="studio-phone">Nomor WhatsApp tujuan</label><input required id="studio-phone" name="phone" type="tel" inputMode="tel" maxLength={18} defaultValue={store.profile.phone} onInput={(e) => { e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+\-]/g, '') }} className="field" placeholder="Contoh: 082135221177 atau 6282135221177" /><p className="mt-1 text-[11px] text-slate-500">Hanya angka, simbol + dan - (otomatis dirapikan untuk link chat WhatsApp).</p></div>
+      <div><label className="label" htmlFor="studio-phone">Nomor WhatsApp tujuan</label><input required id="studio-phone" name="phone" defaultValue={store.profile.phone} className="field" /><p className="mt-1 text-[11px] text-slate-500">Format internasional tanpa +, contoh 628123456789.</p></div>
       <div><label className="label" htmlFor="studio-hours">Jam operasional</label><input id="studio-hours" name="openingHours" defaultValue={store.profile.openingHours} className="field" /></div>
       
       {/* Media Sosial Studio */}
@@ -3849,20 +4001,20 @@ function EntityModal({ editor, store, onClose, onSave }: {
   )
   const [selectedFileName, setSelectedFileName] = useState('')
   const [imageError, setImageError] = useState('')
-
-  const [adminSchDate, setAdminSchDate] = useState(scheduleItem?.eventDate ?? '')
-  const [adminSchTime, setAdminSchTime] = useState(scheduleItem?.eventTime ?? '')
+  const [scheduleDate, setScheduleDate] = useState(() => scheduleItem?.eventDate || getLocalIsoDate(new Date()))
+  const [scheduleTime, setScheduleTime] = useState(() => scheduleItem?.eventTime || '09:00')
+  const [openPicker, setOpenPicker] = useState<'date' | 'time' | null>(null)
 
   const adminCollision = useMemo(() => {
-    if (kind !== 'schedule' || !adminSchDate) return null
+    if (kind !== 'schedule' || !scheduleDate) return null
     return findScheduleCollision(
-      { eventDate: adminSchDate, eventTime: adminSchTime },
+      { eventDate: scheduleDate, eventTime: scheduleTime },
       store.schedules,
       scheduleItem?.id
     )
-  }, [kind, adminSchDate, adminSchTime, store.schedules, scheduleItem?.id])
+  }, [kind, scheduleDate, scheduleTime, store.schedules, scheduleItem?.id])
 
-  const input = (label: string, name: string, value = '', props: Record<string, string> = {}) => <div><label className="label" htmlFor={`editor-${name}`}>{label}</label><input id={`editor-${name}`} name={name} defaultValue={value} className="field" {...props} /></div>
+  const input = (label: string, name: string, value = '', props: React.InputHTMLAttributes<HTMLInputElement> = {}, wrapperClass = '') => <div className={wrapperClass}><label className="label" htmlFor={`editor-${name}`}>{label}</label><input id={`editor-${name}`} name={name} defaultValue={value} className="field min-h-[48px] h-12" {...props} /></div>
   const select = (label: string, name: string, options: readonly string[], selected = '') => (
     <SearchableSelect
       label={label}
@@ -3875,9 +4027,16 @@ function EntityModal({ editor, store, onClose, onSave }: {
   const textarea = (label: string, name: string, value = '', placeholder = '') => <div className="sm:col-span-2"><label className="label" htmlFor={`editor-${name}`}>{label}</label><textarea id={`editor-${name}`} name={name} defaultValue={value} placeholder={placeholder} className="field min-h-20 resize-y" /></div>
   const imageField = (name: 'image' | 'imageUrl', label: string) => <div className="sm:col-span-2"><span className="label">{label} *</span><input type="hidden" name={name} value={imageData} /><label htmlFor="editor-image-file" className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-rose-200 bg-rose-50/60 px-4 py-4 text-sm font-semibold text-rose-700 transition hover:border-rose-300 hover:bg-rose-50"><Image size={17} />Pilih gambar dari perangkat<input id="editor-image-file" type="file" accept=".png,.jpg,.jpeg,image/png,image/jpeg" required={!imageData} className="sr-only" onChange={async (event) => { const file = event.currentTarget.files?.[0]; if (!file) return; const fileInput = event.currentTarget; setImageError(''); try { setImageData(await imageFileToDataUrl(file)); setSelectedFileName(file.name) } catch (error) { setImageError(error instanceof Error ? error.message : 'Gambar tidak dapat diproses.'); fileInput.value = '' } }} /></label><p className="mt-1.5 text-xs text-slate-400">PNG, JPG, atau JPEG. Maks. 15 MB; gambar akan diperkecil untuk penyimpanan.</p>{selectedFileName && <p className="mt-1 text-xs font-medium text-slate-600">File dipilih: {selectedFileName}</p>}{imageError && <p role="alert" className="mt-2 text-xs font-medium text-rose-600">{imageError}</p>}{imageData && <div className="mt-3 flex items-center gap-3 rounded-xl border border-slate-100 p-2.5"><img src={imageData} alt="Preview gambar" className="h-16 w-20 rounded-lg bg-slate-100 object-cover" /><span className="flex-1 text-xs font-medium text-slate-600">Preview gambar</span><button type="button" onClick={() => { setImageData(''); setSelectedFileName('') }} className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50">Hapus</button></div>}</div>
 
-  return <ModalFrame onClose={onClose}><div className="mb-5 flex items-start justify-between"><div><p className="text-xs font-bold uppercase tracking-widest text-rose-500">Studio Manager</p><h2 className="mt-1 font-display text-2xl font-semibold text-slate-900">{titles[kind]}</h2></div><button aria-label="Tutup" onClick={onClose} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"><X size={19} /></button></div><form onSubmit={(event) => onSave(event, kind, item)} className="grid max-h-[70vh] gap-4 overflow-y-auto px-0.5 sm:grid-cols-2">
+  const modalMaxWidth =
+    kind === 'category' || kind === 'certificate'
+      ? 'max-w-md'
+      : kind === 'gallery' || kind === 'faq'
+      ? 'max-w-xl sm:max-w-[680px]'
+      : 'max-w-2xl sm:max-w-[760px]'
+
+  return <ModalFrame onClose={onClose} maxWidth={modalMaxWidth}><div className="mb-5 flex items-start justify-between"><div><p className="text-xs sm:text-sm font-bold uppercase tracking-widest text-rose-500">Studio Manager</p><h2 className="mt-1 font-display text-2xl sm:text-3xl font-semibold text-slate-900">{titles[kind]}</h2></div><button aria-label="Tutup" onClick={onClose} className="rounded-xl p-2.5 text-slate-400 hover:bg-slate-100"><X size={20} /></button></div><form onSubmit={(event) => onSave(event, kind, item)} className="grid gap-4 sm:grid-cols-2">
     {kind === 'package' && <>
-      {input('Nama paket *', 'name', packageItem?.name, { required: 'true', placeholder: 'Contoh: Akad Istimewa' })}
+      {input('Nama paket *', 'name', packageItem?.name, { required: true, placeholder: 'Contoh: Akad Istimewa' })}
       <SearchableSelect
         label="Kategori *"
         name="category"
@@ -3885,9 +4044,9 @@ function EntityModal({ editor, store, onClose, onSave }: {
         defaultValue={packageItem?.category}
         searchPlaceholder="Cari kategori..."
       />
-      {input('Harga mulai / tetap (angka) *', 'price', packageItem ? String(packageItem.price) : '', { type: 'number', min: '1', required: 'true', placeholder: '1850000' })}
-      {input('Harga batas atas (rentang harga)', 'priceMax', packageItem?.priceMax ? String(packageItem.priceMax) : '', { type: 'number', min: '1', placeholder: 'Kosongkan jika perawatan / harga tetap' })}
-      {input('Harga sebelum diskon (coret)', 'originalPrice', packageItem?.originalPrice ? String(packageItem.originalPrice) : '', { type: 'number', min: '1', placeholder: 'Opsional' })}
+      {input('Harga mulai / tetap (angka) *', 'price', packageItem ? String(packageItem.price) : '', { type: 'number', min: 1, required: true, placeholder: 'Contoh: 1850000' })}
+      {input('Harga batas atas (rentang harga)', 'priceMax', packageItem?.priceMax ? String(packageItem.priceMax) : '', { type: 'number', min: 1, placeholder: 'Kosongkan jika perawatan / harga tetap' })}
+      {input('Harga sebelum diskon (coret)', 'originalPrice', packageItem?.originalPrice ? String(packageItem.originalPrice) : '', { type: 'number', min: 1, placeholder: 'Opsional' })}
       {input('Badge promo', 'badge', packageItem?.badge, { placeholder: 'Contoh: Favorit' })}
       {imageField('image', 'Foto paket')}
       {textarea('Deskripsi', 'description', packageItem?.description, 'Ceritakan keunggulan paket...')}
@@ -3897,100 +4056,92 @@ function EntityModal({ editor, store, onClose, onSave }: {
       </p>
     </>}
     {kind === 'schedule' && <>
-      {!scheduleItem && <>
-        {input('Nama klien *', 'clientName', '', { required: 'true', placeholder: 'Nama lengkap' })}
-        <div>
-          <label className="label" htmlFor="editor-whatsapp">Nomor WhatsApp</label>
-          <input
-            id="editor-whatsapp"
-            name="whatsapp"
-            type="tel"
-            inputMode="tel"
-            onInput={(e) => { e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+\-]/g, '') }}
-            maxLength={18}
-            className="field"
-            placeholder="628xxxxxxxxxx"
-          />
-          <p className="mt-1 text-[11px] text-slate-400">Hanya angka, simbol + dan -</p>
-        </div>
-        <SearchableSelect
-          label="Pilih Paket *"
-          name="packageName"
-          options={store.packages.map((entry) => entry.name)}
-          searchPlaceholder="Cari paket layanan..."
-        />
-      </>}
-      {scheduleItem && <>
-        {input('Nama klien *', 'clientName', scheduleItem.clientName, { required: 'true', placeholder: 'Nama lengkap' })}
-        <div>
-          <label className="label" htmlFor="editor-whatsapp">Nomor WhatsApp</label>
-          <input
-            id="editor-whatsapp"
-            name="whatsapp"
-            type="tel"
-            inputMode="tel"
-            defaultValue={scheduleItem.whatsapp ?? ''}
-            onInput={(e) => { e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+\-]/g, '') }}
-            maxLength={18}
-            className="field"
-            placeholder="628xxxxxxxxxx"
-          />
-          <p className="mt-1 text-[11px] text-slate-400">Hanya angka, simbol + dan -</p>
-        </div>
-        <SearchableSelect
-          label="Paket Layanan *"
-          name="packageName"
-          options={store.packages.map((entry) => entry.name)}
-          defaultValue={scheduleItem.packageName}
-          searchPlaceholder="Cari paket layanan..."
-        />
-      </>}
-      <div>
-        <label className="label" htmlFor="editor-eventDate">Tanggal acara *</label>
-        <input
-          id="editor-eventDate"
+      {input('Nama klien *', 'clientName', scheduleItem?.clientName || '', { required: true, placeholder: 'Nama lengkap' })}
+      {input('Nomor WhatsApp', 'whatsapp', scheduleItem?.whatsapp || '', { type: 'tel', placeholder: '628xxxxxxxxxx' })}
+      <SearchableSelect
+        label={scheduleItem ? 'Paket Layanan *' : 'Pilih Paket *'}
+        name="packageName"
+        options={store.packages.map((entry) => entry.name)}
+        defaultValue={scheduleItem?.packageName}
+        searchPlaceholder="Cari paket layanan..."
+      />
+      {select('Status', 'status', scheduleStatuses, scheduleItem?.status)}
+      {/* Kolom 1: Tanggal acara */}
+      <div className="w-full min-w-0">
+        <CustomPinkDatePickerTrigger
+          label="Tanggal acara *"
           name="eventDate"
-          type="date"
-          required
-          value={adminSchDate}
-          onChange={(e) => setAdminSchDate(e.target.value)}
-          className="field"
+          value={scheduleDate}
+          isOpen={openPicker === 'date'}
+          onToggle={(open) => setOpenPicker(open ? 'date' : null)}
         />
+        {openPicker === 'date' && (
+          <div className="mt-2 w-full animate-in fade-in duration-150">
+            <DatePickerPanel
+              value={scheduleDate}
+              onChange={(val) => setScheduleDate(val)}
+              onClose={() => setOpenPicker(null)}
+              schedules={store.schedules}
+            />
+          </div>
+        )}
       </div>
-      <div>
-        <label className="label" htmlFor="editor-eventTime">Waktu acara (WIB)</label>
-        <input
-          id="editor-eventTime"
+
+      {/* Kolom 2: Waktu acara */}
+      <div className="w-full min-w-0">
+        <CustomPinkTimePickerTrigger
+          label="Waktu acara (WIB)"
           name="eventTime"
-          type="time"
-          value={adminSchTime}
-          onChange={(e) => setAdminSchTime(e.target.value)}
-          className="field"
+          value={scheduleTime}
+          isOpen={openPicker === 'time'}
+          onToggle={(open) => setOpenPicker(open ? 'time' : null)}
         />
+        {openPicker === 'time' && (
+          <div className="mt-2 w-full animate-in fade-in duration-150">
+            <TimePickerPanel
+              value={scheduleTime}
+              onChange={(val) => setScheduleTime(val)}
+              onClose={() => setOpenPicker(null)}
+              bookedTimes={store.schedules.filter((s) => s.eventDate === scheduleDate && s.id !== scheduleItem?.id).map((s) => s.eventTime).filter(Boolean) as string[]}
+            />
+          </div>
+        )}
       </div>
+
       {adminCollision && (
         <div className="sm:col-span-2 rounded-xl border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-900 flex items-start gap-2">
           <AlertCircle size={16} className="shrink-0 text-amber-600 mt-0.5" />
           <div>
             <p className="font-bold text-amber-950">Peringatan Jadwal Bentrok</p>
             <p>
-              Tanggal {formatDate(adminSchDate)} {adminSchTime ? `pukul ${adminSchTime} WIB` : ''} bertabrakan dengan pesanan <strong>{adminCollision.clientName}</strong> ({adminCollision.packageName} - {adminCollision.session}).
+              Tanggal {formatDate(scheduleDate)} {scheduleTime ? `pukul ${scheduleTime} WIB` : ''} bertabrakan dengan pesanan <strong>{adminCollision.clientName}</strong> ({adminCollision.packageName} - {adminCollision.session}).
             </p>
           </div>
         </div>
       )}
-      {select('Status', 'status', scheduleStatuses, scheduleItem?.status)}
-      {input('Lokasi rias', 'location', scheduleItem?.location, { placeholder: 'Gedung / alamat' })}
-      {textarea('Catatan', 'notes', scheduleItem?.notes, 'Kebutuhan khusus...')}
+      {textarea('Lokasi rias', 'location', scheduleItem?.location, 'Gedung / alamat lengkap pelaksanaan...')}
+      {textarea('Catatan', 'notes', scheduleItem?.notes, 'Kebutuhan khusus atau catatan tambahan...')}
     </>}
-    {kind === 'gallery' && <>{input('Judul gaya *', 'title', galleryItem?.title, { required: 'true', placeholder: 'Contoh: Seruni di Pagi Akad' })}{select('Jenis momen', 'eventType', eventTypes, galleryItem?.eventType)}{input('Tag', 'tag', galleryItem?.tag, { placeholder: 'Soft glam / Adat Jawa' })}{imageField('imageUrl', 'Foto galeri')}{textarea('Deskripsi', 'description', galleryItem?.description, 'Deskripsi singkat foto...')}</>}
+    {kind === 'gallery' && <>
+      {input('Judul gaya *', 'title', galleryItem?.title, { required: true, placeholder: 'Contoh: Seruni di Pagi Akad' })}
+      <SearchableSelect
+        label="Jenis Kategori *"
+        name="category"
+        options={store.categories.map((c) => c.name)}
+        defaultValue={galleryItem?.category || (galleryItem?.eventType === 'Akad Nikah' ? 'Akad' : galleryItem?.eventType === 'Resepsi Adat' ? 'Resepsi' : galleryItem?.eventType === 'Wisuda & Pesta' ? 'Wisuda' : store.categories[0]?.name)}
+        searchPlaceholder="Pilih jenis kategori..."
+      />
+      {input('Tag', 'tag', galleryItem?.tag, { placeholder: 'Soft glam / Adat Jawa' }, 'sm:col-span-2')}
+      {imageField('imageUrl', 'Foto galeri')}
+      {textarea('Deskripsi', 'description', galleryItem?.description, 'Deskripsi singkat foto...')}
+    </>}
     {kind === 'category' && <div className="sm:col-span-2 space-y-3">
-      {input('Nama kategori *', 'categoryName', categoryItem?.name, { required: 'true', placeholder: 'Contoh: Prewedding, Hijab, Treatment' })}
+      {input('Nama kategori *', 'categoryName', categoryItem?.name, { required: true, placeholder: 'Contoh: Prewedding, Hijab, Treatment' })}
       <p className="text-xs text-slate-500">Kategori baru akan langsung tampil sebagai tombol filter di menu katalog publik.</p>
     </div>}
     {kind === 'certificate' && <>
       {imageField('image', 'Foto Sertifikat')}
-      {input('Keterangan / Nama Sertifikat (opsional)', 'title', certificateItem?.title, { placeholder: 'Contoh: Sertifikat Tata Rias Pengantin' })}
+      {input('Keterangan / Nama Sertifikat (opsional)', 'title', certificateItem?.title, { placeholder: 'Contoh: Sertifikat Tata Rias Pengantin' }, 'sm:col-span-2')}
     </>}
     {kind === 'faq' && <>
       <SearchableSelect
@@ -3999,6 +4150,7 @@ function EntityModal({ editor, store, onClose, onSave }: {
         options={['Tata Rias', 'Layanan Salon']}
         defaultValue={faqItem?.category || 'Tata Rias'}
         searchPlaceholder="Pilih atau cari kategori..."
+        className="sm:col-span-2"
       />
       <div className="sm:col-span-2">
         <label className="label" htmlFor="editor-question">Pertanyaan *</label>
@@ -4023,7 +4175,7 @@ function EntityModal({ editor, store, onClose, onSave }: {
         />
       </div>
     </>}
-    <div className="sticky bottom-0 flex justify-end gap-2 bg-white pt-2 sm:col-span-2"><button type="button" onClick={onClose} className="btn-secondary">Batal</button><button type="submit" className="btn-primary"><Check size={16} />Simpan</button></div>
+    <div className="flex justify-end gap-3 border-t border-slate-100 pt-4 sm:col-span-2"><button type="button" onClick={onClose} className="btn-secondary !px-5 !py-3 !text-sm sm:!text-base">Batal</button><button type="submit" className="btn-primary !px-6 !py-3 !text-sm sm:!text-base"><Check size={18} />Simpan</button></div>
   </form></ModalFrame>
 }
 
@@ -4050,13 +4202,13 @@ function ModalFrame({
 
 function ConfirmationModal({ message, onCancel, onConfirm }: { message: string; onCancel: () => void; onConfirm: () => void }) {
   return <ModalFrame onClose={onCancel}>
-    <div className="flex items-start gap-3">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600"><Trash2 size={18} /></span>
-      <div><h2 className="text-lg font-bold text-slate-900">Konfirmasi</h2><p className="mt-2 text-sm leading-6 text-slate-600">{message}</p></div>
+    <div className="flex items-start gap-3.5">
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-600"><Trash2 size={20} /></span>
+      <div><h2 className="text-lg sm:text-xl font-bold text-slate-900">Konfirmasi</h2><p className="mt-2 text-sm sm:text-base leading-relaxed text-slate-600">{message}</p></div>
     </div>
-    <div className="mt-6 flex justify-end gap-2">
-      <button type="button" onClick={onCancel} className="btn-secondary">Batal</button>
-      <button type="button" onClick={onConfirm} className="btn-primary !bg-rose-600 hover:!bg-rose-700">Oke</button>
+    <div className="mt-6 flex justify-end gap-3">
+      <button type="button" onClick={onCancel} className="btn-secondary !px-5 !py-3 !text-sm sm:!text-base">Batal</button>
+      <button type="button" onClick={onConfirm} className="btn-primary !px-6 !py-3 !text-sm sm:!text-base !bg-rose-600 hover:!bg-rose-700">Oke</button>
     </div>
   </ModalFrame>
 }
