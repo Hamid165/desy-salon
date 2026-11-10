@@ -689,23 +689,38 @@ function App() {
       {publicRoute === '/paket' && <section id="paket" className="min-h-[70vh] bg-rose-50/40 px-5 py-16 sm:px-8 lg:px-12 lg:py-20">
         <div className="mx-auto max-w-7xl">
           <SectionHeading eyebrow="Pilih yang paling kamu" title="Paket rias penuh cerita" description="Setiap detail kami siapkan dengan sepenuh hati, agar kamu bisa menikmati setiap momen." />
-          <div className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="no-scrollbar flex gap-2 overflow-x-auto pb-1">
-              {['Semua', ...store.categories.map((category) => category.name)].map((category) => (
+          <div className="mx-auto mb-8 flex w-full max-w-xl items-center gap-2 sm:gap-3">
+            {/* Searching di sebelah kiri */}
+            <label className="relative block flex-1 min-w-0">
+              <Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="field !h-[42px] !min-h-[42px] rounded-xl !py-2.5 !pl-10 !pr-8 text-sm shadow-2xs"
+                placeholder="Cari paket atau layanan..."
+              />
+              {search && (
                 <button
-                  key={category}
-                  onClick={() => setSelectedCategory(category)}
-                  className={`shrink-0 rounded-full px-4 py-2 text-sm font-semibold transition ${
-                    selectedCategory === category
-                      ? 'bg-rose-500 text-white shadow-sm'
-                      : 'border border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:text-rose-600'
-                  }`}
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  aria-label="Hapus pencarian"
                 >
-                  {category}
+                  <X size={14} />
                 </button>
-              ))}
-            </div>
-            <label className="relative block w-full lg:max-w-xs"><Search size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} className="field rounded-full py-2.5 pl-10" placeholder="Cari paket atau layanan..." /></label>
+              )}
+            </label>
+
+            {/* Tombol Filter Dropdown di sebelah kanan Searching */}
+            <SearchableSelect
+              options={['Semua Kategori', ...store.categories.map((category) => category.name)]}
+              value={selectedCategory === 'Semua' ? 'Semua Kategori' : selectedCategory}
+              onChange={(val) => setSelectedCategory(val === 'Semua Kategori' ? 'Semua' : val)}
+              placeholder="Filter Kategori"
+              searchPlaceholder="Cari kategori..."
+              className="w-[148px] sm:w-48 shrink-0"
+              buttonClassName="h-[42px] min-h-[42px] px-3 sm:px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl border border-slate-200 bg-white hover:border-rose-200 hover:bg-slate-50 text-slate-700 shadow-2xs"
+            />
           </div>
           
           {paginatedPackages.length ? (
@@ -3852,8 +3867,8 @@ function FaqManager({
   }, [store.faqs.length])
 
   const categories = useMemo(() => {
-    const list = Array.from(new Set(store.faqs.map((f) => f.category).filter(Boolean)))
-    return ['Semua', ...list]
+    const list = Array.from(new Set(['Tata Rias', 'Layanan Salon', ...store.faqs.map((f) => f.category).filter(Boolean)]))
+    return ['Semua Kategori', ...list]
   }, [store.faqs])
 
   const filteredFaqs = useMemo(() => {
@@ -3874,49 +3889,59 @@ function FaqManager({
 
   return (
     <>
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+      <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
           <h2 className="text-lg font-bold text-slate-900">Kelola FAQ</h2>
-          <p className="mt-1 text-sm font-medium text-slate-600">
+          <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">
             Daftar pertanyaan dan jawaban yang tampil pada section FAQ halaman utama
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => onOpen('faq')}
-          className="btn-primary !px-4 !py-2.5 text-xs sm:text-sm self-start sm:self-auto"
-        >
-          <Plus size={16} /> Tambah FAQ
-        </button>
-      </div>
 
-      {/* Filter Kategori & Search */}
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {categories.map((cat) => (
+        <div className="flex flex-col sm:flex-row flex-wrap items-center gap-2 lg:flex-nowrap w-full lg:w-auto shrink-0">
+          {/* Searching (bawah pada mode HP, kiri pada desktop) */}
+          <div className="order-2 sm:order-1 relative w-full sm:w-56 lg:w-64">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
+              placeholder="Cari FAQ..."
+              className="field !py-2.5 !pl-9 !pr-7 text-sm min-h-[42px]"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => { setSearchQuery(''); setCurrentPage(1) }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Filter Kategori Dropdown & Tombol Tambah FAQ (atas berdampingan pada mode HP, kanan searching pada desktop) */}
+          <div className="order-1 sm:order-2 grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center">
+            <SearchableSelect
+              options={categories}
+              value={categoryFilter === 'Semua' ? 'Semua Kategori' : categoryFilter}
+              onChange={(val) => {
+                setCategoryFilter(val === 'Semua Kategori' ? 'Semua' : val)
+                setCurrentPage(1)
+              }}
+              placeholder="Filter Kategori"
+              searchPlaceholder="Cari kategori..."
+              className="w-full sm:w-48 shrink-0"
+              buttonClassName="h-[42px] min-h-[42px] px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-200 bg-white hover:border-rose-200 hover:bg-slate-50 text-slate-700 shadow-2xs"
+            />
+
             <button
-              key={cat}
               type="button"
-              onClick={() => { setCategoryFilter(cat); setCurrentPage(1) }}
-              className={`shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
-                categoryFilter === cat
-                  ? 'bg-rose-500 text-white shadow-xs'
-                  : 'border border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:text-rose-600'
-              }`}
+              onClick={() => onOpen('faq')}
+              className="btn-primary !px-3 sm:!px-4 !py-2.5 text-sm min-h-[42px] shrink-0 whitespace-nowrap justify-center w-full sm:w-auto"
             >
-              {cat}
+              <Plus size={16} /> Tambah FAQ
             </button>
-          ))}
-        </div>
-        <div className="relative w-full sm:w-64">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1) }}
-            placeholder="Cari FAQ..."
-            className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-xs sm:text-sm min-h-[42px] text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:outline-none focus:ring-1 focus:ring-rose-200"
-          />
+          </div>
         </div>
       </div>
 
