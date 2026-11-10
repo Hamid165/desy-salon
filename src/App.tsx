@@ -23,7 +23,7 @@ const legacyFacebookUrls = [
   'https://www.facebook.com/desyana/',
   'https://facebook.com/desyana/',
 ]
-const scheduleStatuses = ['Menunggu Konfirmasi', 'Terkonfirmasi', 'Menunggu DP', 'Lunas'] as const
+const scheduleStatuses = ['Menunggu Konfirmasi', 'DP', 'Lunas', 'Selesai'] as const
 const MONTH_NAMES = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
@@ -64,17 +64,39 @@ function readStore(): SalonStore {
       if ((parsed.credentials?.username === 'desy' && parsed.credentials.password === 'desy') || (parsed.credentials?.username === 'admin' && parsed.credentials.password === 'admin123')) {
         Object.assign(credentials, initialStore.credentials)
       }
+      const categories: Category[] = (parsed.categories && parsed.categories.length === 2 && parsed.categories.every((c) => ['salon', 'tata-rias'].includes(c.id)))
+        ? parsed.categories
+        : initialStore.categories
+
       const packages: Package[] = (parsed.packages ?? initialStore.packages).map((pkg) => {
         const init = initialStore.packages.find((p) => p.id === pkg.id)
+        let category = pkg.category
+        if (['Akad', 'Resepsi', 'Wisuda', 'tata-rias', 'Tata rias'].includes(category)) {
+          category = 'Tata Rias'
+        } else if (['Perawatan', 'Treatment', 'salon', 'Perawatan Salon'].includes(category)) {
+          category = 'Salon'
+        } else if (!category) {
+          category = init?.category || 'Tata Rias'
+        }
+        const { originalPrice: _op, badge: _bd, ...cleanedPkg } = pkg as any
         return {
-          ...pkg,
+          ...cleanedPkg,
+          category,
           priceMax: pkg.priceMax ?? init?.priceMax,
         }
       })
-      const schedules: Schedule[] = parsed.schedules?.map((schedule) => ({
-        ...schedule,
-        status: schedule.status === 'Selesai' ? 'Lunas' : schedule.status,
-      })) ?? [...initialStore.schedules]
+      const schedules: Schedule[] = parsed.schedules?.map((schedule) => {
+        let status = schedule.status as string
+        if (status === 'Terkonfirmasi') status = 'DP'
+        else if (status === 'Menunggu DP') status = 'Menunggu Konfirmasi'
+        else if (!['Menunggu Konfirmasi', 'DP', 'Lunas', 'Selesai'].includes(status)) {
+          status = 'Menunggu Konfirmasi'
+        }
+        return {
+          ...schedule,
+          status: status as Schedule['status'],
+        }
+      }) ?? [...initialStore.schedules]
       initialStore.schedules.forEach((initS) => {
         if (!schedules.some((s) => s.id === initS.id)) {
           schedules.push(initS)
@@ -88,14 +110,9 @@ function readStore(): SalonStore {
         : [...initialStore.faqs]
       const gallery: GalleryItem[] = (parsed.gallery ?? initialStore.gallery).map((item) => ({
         ...item,
-        category: item.category || (
-          item.eventType === 'Akad Nikah' ? 'Akad' :
-          item.eventType === 'Resepsi Adat' ? 'Resepsi' :
-          item.eventType === 'Wisuda & Pesta' ? 'Wisuda' :
-          (item.eventType || initialStore.categories[0]?.name || 'Akad')
-        ),
+        category: (item.category === 'Salon' || item.category === 'Perawatan') ? 'Salon' : 'Tata Rias',
       }))
-      return { ...initialStore, ...parsed, packages, certificates, faqs, profile, credentials, schedules, gallery }
+      return { ...initialStore, ...parsed, categories, packages, certificates, faqs, profile, credentials, schedules, gallery }
     }
   } catch (error) {
     console.warn('Data salon lokal tidak dapat dibaca.', error)
@@ -143,12 +160,6 @@ function getLocalIsoDate(d: Date) {
   return `${year}-${month}-${day}`
 }
 
-function getLocalIsoTime(d: Date) {
-  const hours = String(d.getHours()).padStart(2, '0')
-  const minutes = String(d.getMinutes()).padStart(2, '0')
-  return `${hours}:${minutes}`
-}
-
 function normalizePhone(phone: string) {
   const digits = phone.replace(/\D/g, '')
   return digits.startsWith('0') ? `62${digits.slice(1)}` : digits
@@ -162,7 +173,10 @@ function sessionForTime(value: string): Schedule['session'] {
 function hasScheduleCollision(first: Schedule, second: Schedule) {
   if (first.eventDate !== second.eventDate) return false
   if (first.session === 'Full Day' || second.session === 'Full Day') return true
-  if (first.eventTime && second.eventTime) return first.eventTime === second.eventTime
+  if (first.eventTime && second.eventTime) {
+    if (first.eventTime.split(':')[0] === second.eventTime.split(':')[0]) return true
+    return first.eventTime === second.eventTime
+  }
   return first.session === second.session
 }
 
@@ -176,9 +190,52 @@ function findScheduleCollision(
     if (excludeId && s.id === excludeId) return false
     if (s.eventDate !== candidate.eventDate) return false
     if (s.session === 'Full Day' || candidateSession === 'Full Day') return true
-    if (s.eventTime && candidate.eventTime) return s.eventTime === candidate.eventTime
+    if (s.eventTime && candidate.eventTime) {
+      if (s.eventTime.split(':')[0] === candidate.eventTime.split(':')[0]) return true
+      return s.eventTime === candidate.eventTime
+    }
     return s.session === candidateSession
   })
+}
+
+function isHourUnavailable(
+  hour: string,
+  date: string,
+  schedules: Schedule[],
+  excludeId?: string
+): boolean {
+  if (!date) return false
+  const schedulesOnDate = schedules.filter((s) => s.eventDate === date && (!excludeId || s.id !== excludeId))
+  if (schedulesOnDate.length === 0) return false
+
+  // Jika ada booking Full Day di tanggal tersebut
+  if (schedulesOnDate.some((s) => s.session === 'Full Day')) return true
+
+  const session = sessionForTime(`${hour}:00`)
+
+  return schedulesOnDate.some((s) => {
+    if (s.eventTime && s.eventTime.split(':')[0] === hour) return true
+    if (!s.eventTime && s.session === session) return true
+    return false
+  })
+}
+
+function getFirstAvailableTime(
+  date: string,
+  schedules: Schedule[],
+  preferredTime = '08:00',
+  excludeId?: string
+): string {
+  const [prefH, prefM] = preferredTime.split(':')
+  if (BOOKING_HOURS.includes(prefH as any) && !isHourUnavailable(prefH, date, schedules, excludeId)) {
+    return `${prefH}:${prefH === '16' ? '00' : (prefM || '00')}`
+  }
+  for (const h of BOOKING_HOURS) {
+    if (!isHourUnavailable(h, date, schedules, excludeId)) {
+      return `${h}:00`
+    }
+  }
+  return '08:00'
 }
 
 async function imageFileToDataUrl(file: File) {
@@ -316,8 +373,7 @@ function App() {
       if (!name || !price || !value('image')) return setNotice('Nama, harga, dan foto wajib diisi.')
       const entity: Package = {
         id, name, category: value('category'), price, priceMax,
-        originalPrice: value('originalPrice') ? Number(value('originalPrice')) : undefined,
-        badge: value('badge') || undefined, image: value('image'), description: value('description'),
+        image: value('image'), description: value('description'),
         features: value('features').split('\n').map((feature) => feature.trim()).filter(Boolean),
       }
       setStore((current) => ({ ...current, packages: item ? current.packages.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.packages] }))
@@ -341,7 +397,7 @@ function App() {
       setStore((current) => ({ ...current, schedules: item ? current.schedules.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.schedules] }))
     }
     if (kind === 'gallery') {
-      const category = value('category') || store.categories[0]?.name || 'Akad'
+      const category = value('category') || store.categories[0]?.name || 'Tata Rias'
       const entity: GalleryItem = {
         id,
         title: value('title'),
@@ -471,10 +527,11 @@ function App() {
     const time = String(form.get('time') ?? '').trim()
     const clientName = String(form.get('clientName') ?? '').trim()
     const phone = normalizePhone(String(form.get('phone') ?? ''))
+    const location = String(form.get('location') ?? '').trim()
     
     // Validasi semua field wajib diisi
-    if (!clientName || !phone || !date || !time) {
-      setNotice('Semua bidang (nama, nomor WhatsApp, tanggal, dan waktu acara WIB) wajib diisi.')
+    if (!clientName || !phone || !date || !time || !location) {
+      setNotice('Semua bidang (nama, nomor WhatsApp, tanggal, waktu acara, dan lokasi acara) wajib diisi.')
       return
     }
     if (!/^62\d{8,13}$/.test(phone)) {
@@ -482,16 +539,39 @@ function App() {
       return
     }
 
-    const bookingTimestamp = new Date(`${date}T${time}:00`).getTime()
-    const minAllowedTimestamp = Date.now() + 24 * 60 * 60 * 1000 - 60000
-    if (isNaN(bookingTimestamp) || bookingTimestamp < minAllowedTimestamp) {
-      setNotice('Reservasi wajib dilakukan minimal H-1 (+24 jam dari sekarang).')
+    // Validasi minimal H-1 (tanggal acara minimal besok)
+    const todayStr = getLocalIsoDate(new Date())
+    if (date <= todayStr) {
+      setNotice('Reservasi wajib dilakukan minimal H-1 (tanggal acara minimal besok).')
+      return
+    }
+
+    // Validasi Jam Kerja Operasional: 08:00 – 16:00 WIB
+    const [hStr, mStr] = time.split(':')
+    const timeMinutes = Number(hStr) * 60 + Number(mStr || '0')
+    if (timeMinutes < 8 * 60 || timeMinutes > 16 * 60) {
+      setNotice('Waktu acara harus dalam jam kerja operasional (08:00 – 16:00 WIB).')
+      return
+    }
+
+    // Validasi tabrakan jadwal
+    const collision = findScheduleCollision({ eventDate: date, eventTime: time }, store.schedules)
+    if (collision) {
+      setNotice(`Jadwal tanggal ${formatDate(date)} pukul ${time} WIB sudah terisi. Silakan pilih waktu lain.`)
       return
     }
 
     const booking: Schedule = {
-      id: makeId('booking'), clientName, whatsapp: phone, packageName: bookingPackage.name,
-      eventDate: date, eventTime: time, session: sessionForTime(time), location: '', notes: '', status: 'Menunggu Konfirmasi',
+      id: makeId('booking'),
+      clientName,
+      whatsapp: phone,
+      packageName: bookingPackage.name,
+      eventDate: date,
+      eventTime: time,
+      session: sessionForTime(time),
+      location,
+      notes: '',
+      status: 'Menunggu Konfirmasi',
     }
     setStore((current) => ({ ...current, schedules: [booking, ...current.schedules] }))
     const message = [
@@ -503,6 +583,7 @@ function App() {
       `- Paket / Layanan: ${bookingPackage.name}`,
       `- Tanggal: ${formatDate(date)}`,
       `- Waktu: ${time} WIB`,
+      `- Lokasi: ${location}`,
       ``,
       `Apakah jadwal pada tanggal dan waktu tersebut tersedia? Mohon informasi ketersediaan dan proses selanjutnya. Terima kasih.`,
     ].join('\n')
@@ -893,17 +974,12 @@ function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavig
 }
 
 function PackageCard({ item, onBook }: { item: Package; onBook: () => void }) {
-  const isPerawatan = item.category.toLowerCase().includes('perawatan')
+  const isSalon = item.category.toLowerCase().includes('salon') || item.category.toLowerCase().includes('perawatan')
   return (
     <article className="group flex h-full flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-md">
       {/* Gambar Thumbnail Konsisten */}
       <div className="relative h-64 shrink-0 overflow-hidden sm:h-72">
         <img src={item.image} alt={item.name} className="h-full w-full object-cover transition duration-700 group-hover:scale-105" loading="lazy" />
-        {item.badge && (
-          <span className="absolute left-4 top-4 rounded-full bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-700 shadow-xs">
-            <Sparkles size={12} className="mr-1 inline" />{item.badge}
-          </span>
-        )}
         <span className="absolute bottom-4 right-4 rounded-full bg-white/90 px-3 py-1 text-sm font-bold text-slate-700 backdrop-blur">
           {item.category}
         </span>
@@ -936,14 +1012,12 @@ function PackageCard({ item, onBook }: { item: Package; onBook: () => void }) {
         {/* Baris Tombol Aksi di Bawah: Selalu Rata dan Presisi */}
         <div className="mt-auto pt-4 border-t border-slate-100/90 flex min-h-[56px] items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
-            {isPerawatan ? (
+            {isSalon ? (
               <div>
-                {item.originalPrice && <p className="text-xs font-medium text-slate-400 line-through">{rupiah(item.originalPrice)}</p>}
                 <p className="text-base sm:text-lg font-bold text-rose-600 truncate">{rupiah(item.price)}<span className="ml-1 text-xs font-medium text-slate-500">/ layanan</span></p>
               </div>
             ) : (
               <div>
-                {item.originalPrice && <p className="text-xs font-medium text-slate-400 line-through">{rupiah(item.originalPrice)}</p>}
                 <p className="text-sm sm:text-base font-bold text-rose-600 truncate">
                   {item.priceMax ? `${rupiah(item.price)} – ${rupiah(item.priceMax)}` : `Mulai ${rupiah(item.price)}`}
                 </p>
@@ -1333,8 +1407,7 @@ function PublicFooter({ store, onNavigate }: { store: SalonStore; onNavigate: (r
 }
 
 const BOOKING_HOURS = [
-  '06', '07', '08', '09', '10', '11', '12', '13',
-  '14', '15', '16', '17', '18', '19', '20', '21',
+  '08', '09', '10', '11', '12', '13', '14', '15', '16',
 ] as const
 
 const BOOKING_MINUTES = [
@@ -1419,7 +1492,7 @@ function DatePickerPanel({
   minDate,
   onChange,
   onClose,
-  schedules,
+  schedules: _schedules,
 }: {
   value: string
   minDate?: string
@@ -1476,17 +1549,6 @@ function DatePickerPanel({
 
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
   const firstDay = new Date(viewYear, viewMonth, 1).getDay()
-
-  const schedulesOnThisDate = useMemo(() => {
-    if (!schedules?.length) return {}
-    const map: Record<string, { count: number; hasFullDay: boolean }> = {}
-    for (const s of schedules) {
-      if (!map[s.eventDate]) map[s.eventDate] = { count: 0, hasFullDay: false }
-      map[s.eventDate].count++
-      if (s.session === 'Full Day') map[s.eventDate].hasFullDay = true
-    }
-    return map
-  }, [schedules])
 
   const days = useMemo(() => {
     const list: Array<{ day: number; dateStr: string; isPast: boolean; isSelected: boolean }> = []
@@ -1557,55 +1619,27 @@ function DatePickerPanel({
             {Array.from({ length: firstDay }).map((_, i) => (
               <span key={`empty-${i}`} className="flex aspect-square w-full max-w-[36px] mx-auto" />
             ))}
-            {days.map(({ day, dateStr, isPast, isSelected }) => {
-              const bookingInfo = schedulesOnThisDate[dateStr]
-              const hasBooking = Boolean(bookingInfo && bookingInfo.count > 0)
-              const isFullDay = Boolean(bookingInfo && (bookingInfo.hasFullDay || bookingInfo.count >= 2))
-
-              return (
-                <button
-                  key={dateStr}
-                  type="button"
-                  disabled={isPast}
-                  onClick={() => {
-                    onChange(dateStr)
-                    onClose()
-                  }}
-                  className={`relative mx-auto flex aspect-square w-full max-w-[36px] items-center justify-center rounded-xl text-xs sm:text-sm transition ${
-                    isSelected
-                      ? 'bg-rose-500 font-bold text-white shadow-xs'
-                      : isPast
-                      ? 'cursor-not-allowed text-slate-300'
-                      : isFullDay
-                      ? 'bg-rose-50 font-semibold text-rose-700 hover:bg-rose-100'
-                      : hasBooking
-                      ? 'bg-amber-50 font-semibold text-amber-800 hover:bg-amber-100'
-                      : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600 font-medium'
-                  }`}
-                >
-                  <span>{day}</span>
-                  {hasBooking && !isPast && (
-                    <span
-                      className={`absolute bottom-1 h-1.5 w-1.5 rounded-full ${
-                        isSelected ? 'bg-white' : isFullDay ? 'bg-rose-500' : 'bg-amber-500'
-                      }`}
-                    />
-                  )}
-                </button>
-              )
-            })}
+            {days.map(({ day, dateStr, isPast, isSelected }) => (
+              <button
+                key={dateStr}
+                type="button"
+                disabled={isPast}
+                onClick={() => {
+                  onChange(dateStr)
+                  onClose()
+                }}
+                className={`relative mx-auto flex aspect-square w-full max-w-[36px] items-center justify-center rounded-xl text-xs sm:text-sm transition ${
+                  isSelected
+                    ? 'bg-rose-500 font-bold text-white shadow-xs'
+                    : isPast
+                    ? 'cursor-not-allowed text-slate-300'
+                    : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600 font-medium'
+                }`}
+              >
+                <span>{day}</span>
+              </button>
+            ))}
           </div>
-
-          {schedules && schedules.length > 0 && (
-            <div className="mt-3 flex items-center justify-center gap-4 border-t border-rose-100 pt-2.5 text-xs text-slate-600">
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-amber-500 inline-block" /> Ada booking
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-rose-500 inline-block" /> Penuh
-              </span>
-            </div>
-          )}
         </>
       ) : (
         <div className="grid grid-cols-3 gap-2 py-1.5">
@@ -1643,47 +1677,89 @@ function DatePickerPanel({
 
 function TimePickerPanel({
   value,
+  date,
+  schedules = [],
+  excludeId,
+  allowBookedSelection = false,
   onChange,
   onClose,
-  bookedTimes = [],
 }: {
   value: string
+  date?: string
+  schedules?: Schedule[]
+  excludeId?: string
+  allowBookedSelection?: boolean
   onChange: (val: string) => void
   onClose: () => void
-  bookedTimes?: string[]
 }) {
-  const [rawHour, rawMinute] = (value || '09:00').split(':')
-  const [tempHour, setTempHour] = useState(rawHour || '09')
-  const [tempMinute, setTempMinute] = useState(rawMinute || '00')
+  const [rawHour, rawMinute] = (value || '08:00').split(':')
+  const initialHour = BOOKING_HOURS.includes(rawHour as any) ? rawHour : '08'
+  const initialMinute = initialHour === '16' ? '00' : (rawMinute || '00')
+  const [tempHour, setTempHour] = useState(initialHour)
+  const [tempMinute, setTempMinute] = useState(initialMinute)
 
   useEffect(() => {
     if (value) {
       const [h, m] = value.split(':')
-      if (h) setTempHour(h)
-      if (m) setTempMinute(m)
+      if (h && BOOKING_HOURS.includes(h as any)) {
+        setTempHour(h)
+        if (h === '16') {
+          setTempMinute('00')
+        } else if (m) {
+          setTempMinute(m)
+        }
+      }
     }
   }, [value])
 
   const minutesList = useMemo(() => {
+    if (tempHour === '16') {
+      return ['00']
+    }
     if (tempMinute && !BOOKING_MINUTES.includes(tempMinute as any)) {
       return [tempMinute, ...BOOKING_MINUTES].sort()
     }
     return BOOKING_MINUTES
-  }, [tempMinute])
+  }, [tempHour, tempMinute])
+
+  const checkHourBooked = (h: string) => {
+    if (!date) return false
+    return isHourUnavailable(h, date, schedules, excludeId)
+  }
+
+  const checkSlotBooked = (h: string, m: string) => {
+    if (!date) return false
+    const timeStr = `${h}:${m}`
+    const candidateSession = sessionForTime(timeStr)
+    return schedules.some((s) => {
+      if (excludeId && s.id === excludeId) return false
+      if (s.eventDate !== date) return false
+      if (s.session === 'Full Day') return true
+      if (s.eventTime) return s.eventTime.split(':')[0] === h
+      return s.session === candidateSession
+    })
+  }
+
+  function handleSelectHour(h: string) {
+    setTempHour(h)
+    if (h === '16') {
+      setTempMinute('00')
+    }
+  }
 
   function handleConfirm() {
-    onChange(`${tempHour}:${tempMinute}`)
+    const finalMinute = tempHour === '16' ? '00' : tempMinute
+    onChange(`${tempHour}:${finalMinute}`)
     onClose()
   }
+
+  const isCurrentSelectionBooked = checkHourBooked(tempHour) || checkSlotBooked(tempHour, tempMinute)
 
   return (
     <div className="w-full rounded-2xl border border-rose-200 bg-white p-3 sm:p-3.5 shadow-md">
       <div className="mb-2.5 flex items-center justify-between border-b border-rose-100 pb-2">
         <span className="flex items-center gap-1.5 text-xs sm:text-sm font-bold uppercase tracking-wider text-rose-600">
-          <Clock3 size={16} /> Waktu Acara
-        </span>
-        <span className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-600">
-          {tempHour}:{tempMinute} WIB
+          <Clock3 size={16} /> Waktu Acara (08:00–16:00 WIB)
         </span>
       </div>
 
@@ -1692,28 +1768,38 @@ function TimePickerPanel({
           <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
             Jam
           </span>
-          <div className="max-h-40 overflow-y-auto space-y-1.5 rounded-xl border border-rose-100/80 bg-rose-50/20 p-1.5 pr-1">
+          <div className="max-h-48 overflow-y-auto overflow-x-hidden space-y-1.5 rounded-xl border border-rose-100/80 bg-rose-50/20 p-1.5 pr-1">
             {BOOKING_HOURS.map((h) => {
               const isSelected = h === tempHour
-              const isHourBooked = bookedTimes.some((t) => t.startsWith(`${h}:`))
+              const isBooked = checkHourBooked(h)
+              const isDisabled = isBooked && !allowBookedSelection
+
               return (
                 <button
                   key={h}
                   type="button"
-                  onClick={() => setTempHour(h)}
-                  className={`w-full rounded-lg py-1.5 px-2 text-sm sm:text-base font-semibold flex items-center justify-between transition ${
-                    isSelected
+                  disabled={isDisabled}
+                  onClick={() => !isDisabled && handleSelectHour(h)}
+                  className={`w-full h-11 rounded-lg px-2 flex flex-col items-center justify-center transition ${
+                    isBooked
+                      ? 'bg-rose-50/70 border border-rose-200 text-slate-400 cursor-not-allowed opacity-80'
+                      : isSelected
                       ? 'bg-rose-500 text-white font-bold shadow-xs'
-                      : isHourBooked
-                      ? 'bg-rose-50 text-rose-700 hover:bg-rose-100'
-                      : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
+                      : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600 font-semibold'
                   }`}
+                  title={isBooked ? `Pukul ${h}:00 sudah ada booking` : `Pilih pukul ${h}:00`}
                 >
-                  <span>{h}</span>
-                  {isHourBooked && (
-                    <span className={`text-[10px] sm:text-xs font-bold ${isSelected ? 'text-rose-100' : 'text-rose-600'}`}>
-                      Terisi
-                    </span>
+                  {isBooked ? (
+                    <>
+                      <span className="text-[9px] font-extrabold uppercase tracking-tight text-rose-600 leading-none mb-0.5">
+                        Ada Booking
+                      </span>
+                      <span className="line-through text-xs font-medium text-slate-400 leading-none">
+                        {h}:00
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-xs sm:text-sm">{h}:00</span>
                   )}
                 </button>
               )
@@ -1725,28 +1811,37 @@ function TimePickerPanel({
           <span className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-500">
             Menit
           </span>
-          <div className="max-h-40 overflow-y-auto space-y-1.5 rounded-xl border border-rose-100/80 bg-rose-50/20 p-1.5 pr-1">
+          <div className="max-h-48 overflow-y-auto overflow-x-hidden space-y-1.5 rounded-xl border border-rose-100/80 bg-rose-50/20 p-1.5 pr-1">
             {minutesList.map((m) => {
               const isSelected = m === tempMinute
-              const isSlotBooked = bookedTimes.includes(`${tempHour}:${m}`)
+              const isBooked = checkSlotBooked(tempHour, m)
+              const isDisabled = isBooked && !allowBookedSelection
+
               return (
                 <button
                   key={m}
                   type="button"
-                  onClick={() => setTempMinute(m)}
-                  className={`w-full rounded-lg py-1.5 px-2 text-sm sm:text-base font-semibold flex items-center justify-between transition ${
-                    isSelected
+                  disabled={isDisabled}
+                  onClick={() => !isDisabled && setTempMinute(m)}
+                  className={`w-full h-11 rounded-lg px-2 flex flex-col items-center justify-center transition ${
+                    isBooked
+                      ? 'bg-rose-50/70 border border-rose-200 text-slate-400 cursor-not-allowed opacity-80'
+                      : isSelected
                       ? 'bg-rose-500 text-white font-bold shadow-xs'
-                      : isSlotBooked
-                      ? 'bg-rose-100 text-rose-700 hover:bg-rose-200'
-                      : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600'
+                      : 'text-slate-700 hover:bg-rose-50 hover:text-rose-600 font-semibold'
                   }`}
                 >
-                  <span>{m}</span>
-                  {isSlotBooked && (
-                    <span className={`text-[10px] sm:text-xs font-bold ${isSelected ? 'text-rose-100' : 'text-rose-600'}`}>
-                      Bentrok
-                    </span>
+                  {isBooked ? (
+                    <>
+                      <span className="text-[9px] font-extrabold uppercase tracking-tight text-rose-600 leading-none mb-0.5">
+                        Ada Booking
+                      </span>
+                      <span className="line-through text-xs font-medium text-slate-400 leading-none">
+                        :{m}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-xs sm:text-sm">:{m}</span>
                   )}
                 </button>
               )
@@ -1755,18 +1850,17 @@ function TimePickerPanel({
         </div>
       </div>
 
-      {bookedTimes.length > 0 && (
-        <p className="mt-2.5 rounded-lg bg-amber-50/80 p-1.5 text-center text-xs font-medium text-amber-700">
-          Waktu bertanda <strong className="text-rose-600">Terisi / Bentrok</strong> sudah dipesan.
-        </p>
-      )}
-
       <button
         type="button"
+        disabled={isCurrentSelectionBooked && !allowBookedSelection}
         onClick={handleConfirm}
-        className="mt-3 w-full rounded-xl bg-rose-500 py-3 text-sm sm:text-base font-bold text-white shadow-xs transition hover:bg-rose-600"
+        className={`mt-2.5 w-full rounded-xl py-2.5 text-sm sm:text-base font-bold shadow-xs transition ${
+          isCurrentSelectionBooked && !allowBookedSelection
+            ? 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300'
+            : 'bg-rose-500 text-white hover:bg-rose-600'
+        }`}
       >
-        Pilih Jam Ini
+        {isCurrentSelectionBooked && !allowBookedSelection ? 'Jam Terpilih Sudah Ada Booking' : 'Pilih Jam Ini'}
       </button>
     </div>
   )
@@ -1783,35 +1877,52 @@ function BookingModal({
   onClose: () => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
-  const minDateTime = useMemo(() => {
-    const d = new Date(Date.now() + 24 * 60 * 60 * 1000)
-    return {
-      date: getLocalIsoDate(d),
-      time: getLocalIsoTime(d),
-      timestamp: d.getTime(),
-    }
+  // Minimal H-1: Tanggal acara minimal besok (H+1 dari hari ini)
+  const minDate = useMemo(() => {
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    return getLocalIsoDate(tomorrow)
   }, [])
 
-  const [date, setDate] = useState(minDateTime.date)
-  const [time, setTime] = useState(minDateTime.time)
+  const [date, setDate] = useState(minDate)
+  // Otomatis pilih jam pertama yang tersedia (tidak ada booking)
+  const [time, setTime] = useState(() => getFirstAvailableTime(minDate, schedules, '08:00'))
   const [timeError, setTimeError] = useState('')
   const [openPicker, setOpenPicker] = useState<'date' | 'time' | null>(null)
 
   function validateDateTime(selectedDate: string, selectedTime: string) {
     if (!selectedDate || !selectedTime) return false
-    const ts = new Date(`${selectedDate}T${selectedTime}:00`).getTime()
-    const minTs = Date.now() + 24 * 60 * 60 * 1000 - 60000
-    if (isNaN(ts) || ts < minTs) {
-      setTimeError('Pemesanan wajib minimal H-1 (+24 jam dari sekarang).')
+
+    // Aturan H-1: Tanggal acara tidak boleh hari ini atau tanggal lampau (minimal besok)
+    const todayStr = getLocalIsoDate(new Date())
+    if (selectedDate <= todayStr) {
+      setTimeError('Pemesanan wajib minimal H-1 (tanggal acara minimal besok).')
       return false
     }
+
+    // Aturan Jam Kerja: 08:00 – 16:00 WIB
+    const [hStr, mStr] = selectedTime.split(':')
+    const totalMinutes = Number(hStr) * 60 + Number(mStr || '0')
+    if (totalMinutes < 8 * 60 || totalMinutes > 16 * 60) {
+      setTimeError('Waktu acara harus dalam jam kerja operasional (08:00 – 16:00 WIB).')
+      return false
+    }
+
+    // Cek apakah jam yang dipilih sudah ada booking
+    if (isHourUnavailable(hStr, selectedDate, schedules)) {
+      setTimeError(`Pukul ${selectedTime} WIB ada booking. Silakan pilih jam lain.`)
+      return false
+    }
+
     setTimeError('')
     return true
   }
 
   function handleDateChange(newDate: string) {
     setDate(newDate)
-    validateDateTime(newDate, time)
+    const autoTime = getFirstAvailableTime(newDate, schedules, time)
+    setTime(autoTime)
+    validateDateTime(newDate, autoTime)
   }
 
   function handleTimeChange(newTime: string) {
@@ -1825,12 +1936,6 @@ function BookingModal({
     return findScheduleCollision({ eventDate: date, eventTime: time }, schedules)
   }, [date, time, schedules])
 
-  const bookedTimesOnDate = useMemo(() => {
-    return schedules
-      .filter((s) => s.eventDate === date)
-      .map((s) => s.eventTime)
-      .filter(Boolean) as string[]
-  }, [date, schedules])
 
   const isFullDayBooked = useMemo(() => {
     return schedules.some((s) => s.eventDate === date && s.session === 'Full Day')
@@ -1846,7 +1951,7 @@ function BookingModal({
 
   return (
     <ModalFrame onClose={onClose} maxWidth="max-w-xl sm:max-w-[660px]" contentPadding="p-5 sm:p-6" overflowClass="overflow-y-auto">
-      {/* Compact Header: Thumbnail Paket, Nama, Harga, Badge Min. H-1, dan Tombol Tutup */}
+      {/* Compact Header: Thumbnail Paket, Nama, Harga, Badge Min. H-1, Jam Kerja, dan Tombol Tutup */}
       <div className="flex items-center justify-between gap-3 border-b border-rose-100 pb-3.5 mb-4">
         <div className="flex items-center gap-3 min-w-0">
           <img
@@ -1862,12 +1967,15 @@ function BookingModal({
               <span className="rounded-md border border-rose-200 bg-rose-50/70 px-2 py-0.5 text-xs font-semibold text-rose-700">
                 Min. H-1
               </span>
+              <span className="rounded-md border border-rose-200 bg-rose-50/70 px-2 py-0.5 text-xs font-semibold text-rose-700">
+                Jam Kerja: 08.00–16.00 WIB
+              </span>
             </div>
             <h3 className="truncate font-display text-base sm:text-lg font-bold text-slate-900 mt-1">
               {item.name}
             </h3>
             <p className="text-sm sm:text-base font-bold text-rose-600 mt-0.5">
-              {item.category.toLowerCase().includes('perawatan')
+              {(item.category.toLowerCase().includes('salon') || item.category.toLowerCase().includes('perawatan'))
                 ? `${rupiah(item.price)} / layanan`
                 : item.priceMax
                 ? `${rupiah(item.price)} – ${rupiah(item.priceMax)}`
@@ -1932,7 +2040,7 @@ function BookingModal({
               <div className="mt-2 w-full animate-in fade-in duration-150">
                 <DatePickerPanel
                   value={date}
-                  minDate={minDateTime.date}
+                  minDate={minDate}
                   onChange={handleDateChange}
                   onClose={() => setOpenPicker(null)}
                   schedules={schedules}
@@ -1954,12 +2062,27 @@ function BookingModal({
               <div className="mt-2 w-full animate-in fade-in duration-150">
                 <TimePickerPanel
                   value={time}
+                  date={date}
+                  schedules={schedules}
                   onChange={handleTimeChange}
                   onClose={() => setOpenPicker(null)}
-                  bookedTimes={bookedTimesOnDate}
                 />
               </div>
             )}
+          </div>
+
+          {/* Baris Baru: Lokasi acara */}
+          <div className="w-full sm:col-span-2 min-w-0">
+            <label className="mb-1.5 block text-sm sm:text-base font-bold text-slate-800" htmlFor="booking-location">
+              Lokasi acara *
+            </label>
+            <input
+              required
+              id="booking-location"
+              name="location"
+              className="field block h-12 w-full rounded-xl border border-rose-200 bg-white px-3.5 sm:px-4 text-sm sm:text-base text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 focus:outline-none transition"
+              placeholder="Contoh: Di Desy Salon / Gedung Serbaguna / Alamat Rumah"
+            />
           </div>
         </div>
 
@@ -1985,7 +2108,7 @@ function BookingModal({
           <div className="flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm sm:text-base text-emerald-800">
             <CheckCircle2 size={20} className="shrink-0 text-emerald-600" />
             <span>
-              Jadwal <strong>{formatDate(date)}</strong> pukul <strong>{time} WIB</strong> siap dipesan.
+              Jadwal <strong>{formatDate(date)}</strong> pukul <strong>{time} WIB</strong> siap dipesan (Jam Kerja 08:00–16:00).
             </span>
           </div>
         )}
@@ -2187,8 +2310,8 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
       </header>
 
       <main className="mx-auto min-w-0 max-w-[1440px] px-3 py-5 sm:px-8 sm:py-7 lg:px-9">
-        {/* 2 Card Statistik di atas: Disesuaikan per menu (FAQ, Portfolio, Jadwal), menu utama Paket & Booking, disembunyikan di Akun & Sertifikat */}
-        {activeTab !== 'Akun' && activeTab !== 'Sertifikat' && (
+        {/* 2 Card Statistik di atas: Disesuaikan per menu (FAQ, Kategori, Jadwal, dsb), disembunyikan di Akun, Sertifikat, dan Portfolio */}
+        {activeTab !== 'Akun' && activeTab !== 'Sertifikat' && activeTab !== 'Portfolio' && (
           <section className="mb-5 grid grid-cols-1 gap-3 sm:mb-7 sm:grid-cols-2">
             {activeTab === 'FAQ' ? (
               <>
@@ -2204,23 +2327,6 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
                   count={store.faqs.filter((item) => (item.category || '').toLowerCase().includes('salon')).length}
                   detail="Pertanyaan perawatan salon"
                   icon={HelpCircle}
-                  color="sky"
-                />
-              </>
-            ) : activeTab === 'Portfolio' ? (
-              <>
-                <StatCard
-                  title="Total Foto Portfolio"
-                  count={store.gallery.length}
-                  detail="Koleksi dokumentasi hasil rias"
-                  icon={Image}
-                  color="rose"
-                />
-                <StatCard
-                  title="Kategori Terpakai"
-                  count={new Set(store.gallery.map((item) => (item.category || item.eventType || '').trim()).filter(Boolean)).size}
-                  detail="Kategori aktif di portfolio"
-                  icon={LayoutDashboard}
                   color="sky"
                 />
               </>
@@ -2244,24 +2350,24 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
             ) : activeTab === 'Jadwal' ? (
               <>
                 <StatCard
-                  title="Terkonfirmasi"
-                  count={store.schedules.filter((item) => item.status === 'Terkonfirmasi').length}
-                  detail="Jadwal rias siap & terkonfirmasi"
-                  icon={CheckCircle2}
-                  color="emerald"
-                />
-                <StatCard
-                  title="Pending"
-                  count={store.schedules.filter((item) => item.status === 'Menunggu Konfirmasi' || item.status === 'Menunggu DP').length}
-                  detail="Menunggu konfirmasi & DP"
+                  title="DP"
+                  count={store.schedules.filter((item) => item.status === 'DP').length}
+                  detail="Jadwal rias terbayar DP"
                   icon={Clock3}
                   color="amber"
+                />
+                <StatCard
+                  title="Lunas"
+                  count={store.schedules.filter((item) => item.status === 'Lunas').length}
+                  detail="Jadwal pembayaran lunas"
+                  icon={CheckCircle2}
+                  color="emerald"
                 />
               </>
             ) : (
               <>
                 <StatCard title="Paket Katalog" count={store.packages.length} detail="Pilihan layanan aktif" icon={PackageCheck} color="rose" />
-                <StatCard title="Booking Mendatang" count={store.schedules.filter((item) => item.status !== 'Lunas').length} detail="Perlu ditangani" icon={CalendarDays} color="sky" />
+                <StatCard title="Booking Mendatang" count={store.schedules.filter((item) => item.status !== 'Lunas' && item.status !== 'Selesai').length} detail="Perlu ditangani" icon={CalendarDays} color="sky" />
               </>
             )}
           </section>
@@ -2520,8 +2626,7 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
       list = list.filter((p) =>
         p.name.toLowerCase().includes(q) ||
         p.description.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q) ||
-        (p.badge && p.badge.toLowerCase().includes(q))
+        p.category.toLowerCase().includes(q)
       )
     }
     if (sortOrder === 'default') {
@@ -2601,11 +2706,6 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
             <div>
               <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg bg-slate-100">
                 <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
-                {item.badge && (
-                  <span className="absolute top-1.5 left-1.5 rounded-full bg-amber-500/90 px-2 py-0.5 text-[9px] font-bold text-white shadow-xs backdrop-blur-xs">
-                    {item.badge}
-                  </span>
-                )}
               </div>
               <div className="mt-2 min-w-0">
                 <span className="inline-block rounded-md bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-600">
@@ -2615,7 +2715,7 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
                   {item.name}
                 </h3>
                 <p className="mt-0.5 text-xs font-bold text-slate-700">
-                  {item.category.toLowerCase().includes('perawatan')
+                  {(item.category.toLowerCase().includes('salon') || item.category.toLowerCase().includes('perawatan'))
                     ? rupiah(item.price)
                     : item.priceMax
                       ? `${rupiah(item.price)} – ${rupiah(item.priceMax)}`
@@ -2651,7 +2751,6 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
               </th>
               <th className="px-4 py-3 font-semibold">Kategori</th>
               <th className="px-4 py-3 font-semibold">Harga</th>
-              <th className="px-4 py-3 font-semibold">Label</th>
               <th className="py-3 pl-4 text-center font-semibold">Aksi</th>
             </tr>
           </thead>
@@ -2669,13 +2768,12 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
                 </td>
                 <td className="px-4 py-3 text-sm text-slate-700">{item.category}</td>
                 <td className="px-4 py-3 text-sm font-semibold text-slate-800">
-                  {item.category.toLowerCase().includes('perawatan')
+                  {(item.category.toLowerCase().includes('salon') || item.category.toLowerCase().includes('perawatan'))
                     ? rupiah(item.price)
                     : item.priceMax
                       ? `${rupiah(item.price)} – ${rupiah(item.priceMax)}`
                       : `Mulai ${rupiah(item.price)}`}
                 </td>
-                <td className="px-4 py-3">{item.badge ? <span className="whitespace-nowrap rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">{item.badge}</span> : <span className="text-xs text-slate-500">-</span>}</td>
                 <td className="py-3 pl-4"><RowActions onEdit={() => onOpen('package', item)} onDelete={() => onDelete('packages', item.id)} /></td>
               </tr>
             ))}
@@ -2893,9 +2991,9 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
     return Array.from(years).sort().reverse()
   }, [store.schedules])
 
-  // Filter daftar jadwal aktif (hanya booking yang belum lunas)
+  // Filter daftar jadwal aktif (hanya booking yang belum lunas/selesai)
   const filteredAndSorted = useMemo(() => {
-    let list = store.schedules.filter((s) => s.status !== 'Lunas')
+    let list = store.schedules.filter((s) => s.status !== 'Lunas' && s.status !== 'Selesai')
     if (selectedMonth !== 'Semua Bulan') {
       const mIdx = MONTH_NAMES.indexOf(selectedMonth as any) + 1
       const mStr = mIdx < 10 ? `0${mIdx}` : `${mIdx}`
@@ -2949,8 +3047,8 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
 
   // Data history booking disaring berdasarkan 2 filter: Bulan & Tahun
   const activeHistoryData = useMemo(() => {
-    // Riwayat booking hanya menampilkan pesanan yang sudah berstatus 'Lunas'
-    let items = store.schedules.filter((s) => s.status === 'Lunas')
+    // Riwayat booking menampilkan pesanan yang sudah berstatus 'Lunas' atau 'Selesai'
+    let items = store.schedules.filter((s) => s.status === 'Lunas' || s.status === 'Selesai')
     if (historyMonth !== 'Semua Bulan') {
       const mIdx = MONTH_NAMES.indexOf(historyMonth as any) + 1
       const mStr = mIdx < 10 ? `0${mIdx}` : `${mIdx}`
@@ -3081,7 +3179,7 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
               {activeHistoryData.lunasItems.length} Booking
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Booking berstatus lunas pada periode ini
+              Booking berstatus lunas / selesai pada periode ini
             </p>
           </div>
 
@@ -3110,7 +3208,7 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
                     </div>
                     <div className="text-right">
                       <StatusBadge status={item.status} />
-                      <p className={`mt-1 text-xs font-bold ${item.status === 'Lunas' ? 'text-emerald-700' : 'text-slate-500'}`}>
+                      <p className={`mt-1 text-xs font-bold ${item.status === 'Lunas' || item.status === 'Selesai' ? 'text-emerald-700' : 'text-slate-500'}`}>
                         {rupiah(getBookingPrice(item, store.packages))}
                       </p>
                     </div>
@@ -3162,7 +3260,7 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
                         {item.packageName}
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
-                        {item.status === 'Lunas' ? (
+                        {item.status === 'Lunas' || item.status === 'Selesai' ? (
                           <span className="font-bold text-emerald-700">{rupiah(getBookingPrice(item, store.packages))}</span>
                         ) : (
                           <span className="font-medium text-slate-500">{rupiah(getBookingPrice(item, store.packages))}</span>
@@ -3481,7 +3579,14 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
 }
 
 function StatusBadge({ status }: { status: Schedule['status'] }) {
-  const cls = status === 'Terkonfirmasi' || status === 'Lunas' ? 'bg-emerald-50 text-emerald-700' : status === 'Menunggu Konfirmasi' ? 'bg-sky-50 text-sky-700' : 'bg-amber-50 text-amber-800'
+  const cls =
+    status === 'Lunas'
+      ? 'bg-emerald-50 text-emerald-700'
+      : status === 'DP'
+      ? 'bg-amber-50 text-amber-700'
+      : status === 'Selesai'
+      ? 'bg-purple-50 text-purple-700'
+      : 'bg-sky-50 text-sky-700'
   return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${cls}`}>{status}</span>
 }
 
@@ -4028,14 +4133,12 @@ function EntityModal({ editor, store, onClose, onSave }: {
         searchPlaceholder="Cari kategori..."
       />
       {input('Harga mulai / tetap (angka) *', 'price', packageItem ? String(packageItem.price) : '', { type: 'number', min: 1, required: true, placeholder: 'Contoh: 1850000' })}
-      {input('Harga batas atas (rentang harga)', 'priceMax', packageItem?.priceMax ? String(packageItem.priceMax) : '', { type: 'number', min: 1, placeholder: 'Kosongkan jika perawatan / harga tetap' })}
-      {input('Harga sebelum diskon (coret)', 'originalPrice', packageItem?.originalPrice ? String(packageItem.originalPrice) : '', { type: 'number', min: 1, placeholder: 'Opsional' })}
-      {input('Badge promo', 'badge', packageItem?.badge, { placeholder: 'Contoh: Favorit' })}
+      {input('Harga batas atas (rentang harga)', 'priceMax', packageItem?.priceMax ? String(packageItem.priceMax) : '', { type: 'number', min: 1, placeholder: 'Kosongkan jika salon / harga tetap' })}
       {imageField('image', 'Foto paket')}
       {textarea('Deskripsi', 'description', packageItem?.description, 'Ceritakan keunggulan paket...')}
-      {textarea('Fitur (satu fitur per baris)', 'features', packageItem?.features.join('\n'), 'Makeup premium\nHairdo')}
+      {textarea('Layanan (satu layanan per baris)', 'features', packageItem?.features.join('\n'), 'Makeup premium\nHairdo')}
       <p className="sm:col-span-2 -mt-2 rounded-xl border border-rose-100 bg-rose-50/60 p-3 text-[11px] text-slate-600">
-        💡 <strong>Ketentuan Harga:</strong> Untuk kategori <strong>Perawatan</strong> cukup isi <em>Harga mulai / tetap</em> (akan tampil harga tetap). Untuk <strong>Rias, Akad, Resepsi, Wisuda</strong>, isi juga <em>Harga batas atas</em> agar tampil sebagai rentang harga (misal: <em>Rp 1.850.000 – Rp 2.500.000</em>).
+        💡 <strong>Ketentuan Harga:</strong> Untuk kategori <strong>Salon</strong> cukup isi <em>Harga mulai / tetap</em> (akan tampil harga tetap). Untuk <strong>Tata Rias</strong>, isi juga <em>Harga batas atas</em> agar tampil sebagai rentang harga (misal: <em>Rp 1.850.000 – Rp 2.500.000</em>).
       </p>
     </>}
     {kind === 'schedule' && <>
@@ -4083,9 +4186,12 @@ function EntityModal({ editor, store, onClose, onSave }: {
           <div className="mt-2 w-full animate-in fade-in duration-150">
             <TimePickerPanel
               value={scheduleTime}
+              date={scheduleDate}
+              schedules={store.schedules}
+              excludeId={scheduleItem?.id}
+              allowBookedSelection={true}
               onChange={(val) => setScheduleTime(val)}
               onClose={() => setOpenPicker(null)}
-              bookedTimes={store.schedules.filter((s) => s.eventDate === scheduleDate && s.id !== scheduleItem?.id).map((s) => s.eventTime).filter(Boolean) as string[]}
             />
           </div>
         )}
@@ -4111,7 +4217,7 @@ function EntityModal({ editor, store, onClose, onSave }: {
         label="Jenis Kategori *"
         name="category"
         options={store.categories.map((c) => c.name)}
-        defaultValue={galleryItem?.category || (galleryItem?.eventType === 'Akad Nikah' ? 'Akad' : galleryItem?.eventType === 'Resepsi Adat' ? 'Resepsi' : galleryItem?.eventType === 'Wisuda & Pesta' ? 'Wisuda' : store.categories[0]?.name)}
+        defaultValue={galleryItem?.category || (galleryItem?.eventType ? 'Tata Rias' : store.categories[0]?.name || 'Tata Rias')}
         searchPlaceholder="Pilih jenis kategori..."
       />
       {input('Tag', 'tag', galleryItem?.tag, { placeholder: 'Soft glam / Adat Jawa' }, 'sm:col-span-2')}

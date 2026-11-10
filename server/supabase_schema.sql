@@ -22,8 +22,6 @@ CREATE TABLE IF NOT EXISTS public.packages (
     category TEXT NOT NULL,
     price BIGINT NOT NULL,
     price_max BIGINT,
-    original_price BIGINT,
-    badge TEXT,
     image TEXT NOT NULL,
     description TEXT NOT NULL,
     features JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -41,7 +39,7 @@ CREATE TABLE IF NOT EXISTS public.schedules (
     session TEXT NOT NULL CHECK (session IN ('Pagi', 'Siang', 'Sore', 'Full Day')),
     location TEXT NOT NULL,
     notes TEXT DEFAULT '',
-    status TEXT NOT NULL CHECK (status IN ('Menunggu Konfirmasi', 'Terkonfirmasi', 'Menunggu DP', 'Lunas')) DEFAULT 'Menunggu Konfirmasi',
+    status TEXT NOT NULL CHECK (status IN ('Menunggu Konfirmasi', 'DP', 'Lunas', 'Selesai')) DEFAULT 'Menunggu Konfirmasi',
     created_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
@@ -52,7 +50,7 @@ CREATE INDEX IF NOT EXISTS idx_schedules_date_session ON public.schedules (event
 CREATE TABLE IF NOT EXISTS public.gallery (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
-    event_type TEXT NOT NULL CHECK (event_type IN ('Akad Nikah', 'Resepsi Adat', 'Wisuda & Pesta')),
+    event_type TEXT NOT NULL,
     tag TEXT NOT NULL,
     image_url TEXT NOT NULL,
     description TEXT DEFAULT '',
@@ -156,46 +154,44 @@ FOR DELETE USING (bucket_id = 'salon-assets');
 
 -- Kategori
 INSERT INTO public.categories (id, name, slug) VALUES
-('akad', 'Akad', 'akad'),
-('resepsi', 'Resepsi', 'resepsi'),
-('wisuda', 'Wisuda', 'wisuda'),
-('perawatan', 'Perawatan', 'perawatan')
+('salon', 'Salon', 'salon'),
+('tata-rias', 'Tata Rias', 'tata-rias')
 ON CONFLICT (id) DO NOTHING;
 
 -- Paket
-INSERT INTO public.packages (id, name, category, price, price_max, original_price, badge, image, description, features) VALUES
+INSERT INTO public.packages (id, name, category, price, price_max, image, description, features) VALUES
 (
-    'paket-akad', 'Akad Istimewa', 'Akad', 1850000, 2500000, 2200000, 'Favorit',
+    'paket-akad', 'Akad Istimewa', 'Tata Rias', 1850000, 2500000,
     'https://images.unsplash.com/photo-1594552072238-b8a33785b261?auto=format&fit=crop&w=1000&q=85',
     'Riasan anggun dan personal untuk momen sakral yang tak terlupakan.',
     '["Makeup akad premium", "Hijab do & aksesori", "Hairdo keluarga 1 orang", "Touch-up sebelum acara"]'::jsonb
 ),
 (
-    'paket-jawa', 'Paes Ageng Jawa', 'Resepsi', 4250000, 5500000, 4800000, 'Best seller',
+    'paket-jawa', 'Paes Ageng Jawa', 'Tata Rias', 4250000, 5500000,
     'https://images.unsplash.com/photo-1537633552985-df8429e8048b?auto=format&fit=crop&w=1000&q=85',
     'Tata rias tradisional dengan detail paes yang dibuat sepenuh hati.',
     '["Rias pengantin & paes", "Busana adat lengkap", "Melati & aksesori", "Rias orang tua 2 orang"]'::jsonb
 ),
 (
-    'paket-modern', 'Modern Grace', 'Resepsi', 3250000, 4500000, NULL, NULL,
+    'paket-modern', 'Modern Grace', 'Tata Rias', 3250000, 4500000,
     'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=1000&q=85',
     'Look modern yang ringan, tahan lama, dan tetap terasa seperti dirimu.',
     '["Makeup flawless premium", "Hairdo atau hijab styling", "Pilihan gaun resepsi", "Touch-up selama acara"]'::jsonb
 ),
 (
-    'paket-wisuda', 'Wisuda Cantik', 'Wisuda', 350000, 650000, NULL, NULL,
+    'paket-wisuda', 'Wisuda Cantik', 'Tata Rias', 350000, 650000,
     'https://images.unsplash.com/photo-1529636798458-92182e662485?auto=format&fit=crop&w=1000&q=85',
     'Riasan segar yang cantik di foto dari prosesi sampai perayaan.',
     '["Makeup natural glam", "Hairdo simpel", "Bulu mata premium", "Konsultasi look"]'::jsonb
 ),
 (
-    'paket-pra', 'Ritual Pra-Nikah', 'Perawatan', 650000, NULL, NULL, NULL,
+    'paket-pra', 'Ritual Pra-Nikah', 'Salon', 650000, NULL,
     'https://images.unsplash.com/photo-1512290923902-8a9f81dc236c?auto=format&fit=crop&w=1000&q=85',
     'Waktu istimewa untuk merawat diri menjelang hari bahagiamu.',
     '["Facial calming", "Lulur & body mask", "Hair spa", "Teh herbal hangat"]'::jsonb
 ),
 (
-    'paket-akad-resepsi', 'Akad & Resepsi Lengkap', 'Akad', 5950000, 7500000, 6800000, 'Hemat 12%',
+    'paket-akad-resepsi', 'Akad & Resepsi Lengkap', 'Tata Rias', 5950000, 7500000,
     'https://images.unsplash.com/photo-1523438885200-e635ba2c371e?auto=format&fit=crop&w=1000&q=85',
     'Satu tim andal untuk menemani setiap babak hari pernikahanmu.',
     '["Rias akad & resepsi", "2 set busana pengantin", "Rias keluarga 4 orang", "Tim standby seharian"]'::jsonb
@@ -204,9 +200,9 @@ ON CONFLICT (id) DO NOTHING;
 
 -- Jadwal Awal
 INSERT INTO public.schedules (id, client_name, package_name, event_date, event_time, session, location, notes, status) VALUES
-('jadwal-1', 'Nadia Putri', 'Akad Istimewa', '2026-11-14', '08:00', 'Pagi', 'Gedung Serbaguna Melati', 'Makeup soft glam, kulit sensitif.', 'Terkonfirmasi'),
-('jadwal-2', 'Aulia Rahma', 'Paes Ageng Jawa', '2026-11-14', '10:00', 'Pagi', 'Pendopo Taman Sari', 'Konsultasi busana hari Jumat.', 'Menunggu DP'),
-('jadwal-3', 'Sinta Maharani', 'Modern Grace', '2026-11-21', '13:00', 'Siang', 'Hotel Aruna', '', 'Terkonfirmasi')
+('jadwal-1', 'Nadia Putri', 'Akad Istimewa', '2026-11-14', '08:00', 'Pagi', 'Gedung Serbaguna Melati', 'Makeup soft glam, kulit sensitif.', 'DP'),
+('jadwal-2', 'Aulia Rahma', 'Paes Ageng Jawa', '2026-11-14', '10:00', 'Pagi', 'Pendopo Taman Sari', 'Konsultasi busana hari Jumat.', 'Menunggu Konfirmasi'),
+('jadwal-3', 'Sinta Maharani', 'Modern Grace', '2026-11-21', '13:00', 'Siang', 'Hotel Aruna', '', 'DP')
 ON CONFLICT (id) DO NOTHING;
 
 -- Portofolio Galeri

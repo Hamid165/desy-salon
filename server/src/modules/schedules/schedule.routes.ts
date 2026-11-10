@@ -11,6 +11,8 @@ function checkCollision(incoming: { event_date: string; event_time?: string | nu
   if (incoming.event_date !== existing.event_date) return false
   if (incoming.session === 'Full Day' || existing.session === 'Full Day') return true
   if (incoming.event_time && existing.event_time) {
+    // Jika berada di jam yang sama (misal sama-sama jam 09)
+    if (incoming.event_time.split(':')[0] === existing.event_time.split(':')[0]) return true
     return incoming.event_time === existing.event_time
   }
   return incoming.session === existing.session
@@ -77,13 +79,46 @@ scheduleRouter.get('/check', async (req, res, next) => {
       )
     )
 
-    const checkTime = time ? String(time) : '08:00'
-    const targetTs = new Date(`${date}T${checkTime}:00`).getTime()
-    const minAllowedTs = Date.now() + 24 * 60 * 60 * 1000 - 60000
-    const isLessThan24h = isNaN(targetTs) || targetTs < minAllowedTs
+    // Validasi Minimal H-1 (WIB = UTC+7): tanggal acara minimal besok
+    const nowWib = new Date(Date.now() + 7 * 60 * 60 * 1000)
+    const todayWibStr = nowWib.toISOString().slice(0, 10)
+    const isLessThanHMinus1 = String(date) <= todayWibStr
+
+    // Validasi Jam Kerja: 08:00 - 16:00 WIB
+    let isOutsideWorkingHours = false
+    if (time) {
+      const [h, m] = String(time).split(':').map(Number)
+      const minutes = (h || 0) * 60 + (m || 0)
+      if (minutes < 8 * 60 || minutes > 16 * 60) {
+        isOutsideWorkingHours = true
+      }
+    }
+
+    const isAvailable = !colliding && !isLessThanHMinus1 && !isOutsideWorkingHours
+
+    // Kumpulkan jam-jam yang sudah ada booking pada tanggal tersebut
+    const bookedHours: string[] = []
+    const bookedTimes: string[] = []
+    const isFullDay = (existingSchedules as Schedule[]).some((s) => s.session === 'Full Day')
+
+    if (isFullDay) {
+      ['08', '09', '10', '11', '12', '13', '14', '15', '16'].forEach((h) => bookedHours.push(h))
+    } else {
+      (existingSchedules as Schedule[]).forEach((s) => {
+        if (s.event_time) {
+          const h = s.event_time.split(':')[0]
+          if (!bookedHours.includes(h)) bookedHours.push(h)
+          if (!bookedTimes.includes(s.event_time)) bookedTimes.push(s.event_time)
+        } else if (s.session) {
+          if (s.session === 'Pagi') ['08', '09', '10'].forEach((h) => !bookedHours.includes(h) && bookedHours.push(h))
+          if (s.session === 'Siang') ['11', '12', '13', '14'].forEach((h) => !bookedHours.includes(h) && bookedHours.push(h))
+          if (s.session === 'Sore') ['15', '16'].forEach((h) => !bookedHours.includes(h) && bookedHours.push(h))
+        }
+      })
+    }
 
     res.json({
-      available: !colliding && !isLessThan24h,
+      available: isAvailable,
       collides: Boolean(colliding),
       collidingSchedule: colliding
         ? {
@@ -93,7 +128,11 @@ scheduleRouter.get('/check', async (req, res, next) => {
             event_time: colliding.event_time,
           }
         : null,
-      isLessThan24h,
+      booked_hours: bookedHours,
+      booked_times: bookedTimes,
+      is_full_day: isFullDay,
+      isLessThanHMinus1,
+      isOutsideWorkingHours,
       event_date: date,
       session: sessionVal,
     })
@@ -108,16 +147,44 @@ scheduleRouter.post('/', async (req, res, next) => {
     const validated = scheduleSchema.parse(req.body)
     const id = validated.id || `jadwal-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
 
-    // Aturan validasi sistem: Tolak booking yang tanggal/jamnya kurang dari H-1 (24 jam dari sekarang)
-    // Kecuali jika dikirim oleh admin (req.body.force === true)
-    const eventTimeStr = validated.event_time || '08:00'
-    const bookingTimestamp = new Date(`${validated.event_date}T${eventTimeStr}:00`).getTime()
-    const minAllowedTimestamp = Date.now() + 24 * 60 * 60 * 1000 - 60000 // toleransi 1 menit
-
-    if (!req.body.force && (isNaN(bookingTimestamp) || bookingTimestamp < minAllowedTimestamp)) {
+    // Aturan 1: Minimal H-1 (tanggal acara minimal besok)
+    const nowWib = new Date(Date.now() + 7 * 60 * 60 * 1000)
+    const todayWibStr = nowWib.toISOString().slice(0, 10)
+    if (!req.body.force && validated.event_date <= todayWibStr) {
       res.status(422).json({
         status: 422,
-        error: 'Pemesanan ditolak: Tanggal atau waktu booking wajib minimal H-1 (24 jam dari sekarang).',
+        error: 'Pemesanan ditolak: Reservasi harus dilakukan minimal H-1 (tanggal acara minimal besok).',
+      })
+      return
+    }
+
+    // Aturan 2: Waktu acara wajib dalam jam kerja operasional (08:00 – 16:00 WIB)
+    if (!req.body.force) {
+      if (!validated.event_time) {
+        res.status(422).json({
+          status: 422,
+          error: 'Pemesanan ditolak: Waktu acara wajib dipilih dalam jam kerja (08:00 – 16:00 WIB).',
+        })
+        return
+      }
+      const [hStr, mStr] = validated.event_time.split(':')
+      const h = Number(hStr)
+      const m = Number(mStr || '0')
+      const minutes = h * 60 + m
+      if (minutes < 8 * 60 || minutes > 16 * 60) {
+        res.status(422).json({
+          status: 422,
+          error: 'Pemesanan ditolak: Waktu acara harus berada dalam jam kerja (08:00 – 16:00 WIB).',
+        })
+        return
+      }
+    }
+
+    // Aturan 3: Lokasi acara wajib diisi untuk booking klien
+    if (!req.body.force && (!validated.location || validated.location.trim() === '')) {
+      res.status(422).json({
+        status: 422,
+        error: 'Pemesanan ditolak: Lokasi acara wajib diisi.',
       })
       return
     }
@@ -135,7 +202,7 @@ scheduleRouter.post('/', async (req, res, next) => {
     if (colliding && !req.body.force) {
       res.status(409).json({
         status: 409,
-        error: `Jadwal bentrok dengan acara lain (${colliding.client_name} - ${colliding.package_name}) pada tanggal ${validated.event_date}${colliding.event_time ? ' pukul ' + colliding.event_time + ' WIB' : ''}.`,
+        error: `Jadwal tidak tersedia: Jam ${validated.event_time ? validated.event_time + ' WIB ' : ''}pada tanggal ${validated.event_date} sudah ada booking (${colliding.client_name} - ${colliding.package_name}). Silakan pilih jam lain yang masih tersedia.`,
         collidingSchedule: {
           client_name: colliding.client_name,
           package_name: colliding.package_name,
@@ -199,7 +266,7 @@ scheduleRouter.put('/:id', requireAdmin, async (req, res, next) => {
     if (colliding && !req.body.force) {
       res.status(409).json({
         status: 409,
-        error: `Jadwal bentrok dengan acara lain (${colliding.client_name} - ${colliding.package_name}) pada tanggal ${validated.event_date}${colliding.event_time ? ' pukul ' + colliding.event_time + ' WIB' : ''}.`,
+        error: `Jadwal tidak tersedia: Jam ${validated.event_time ? validated.event_time + ' WIB ' : ''}pada tanggal ${validated.event_date} sudah ada booking (${colliding.client_name} - ${colliding.package_name}). Silakan pilih jam lain yang masih tersedia.`,
         collidingSchedule: {
           client_name: colliding.client_name,
           package_name: colliding.package_name,

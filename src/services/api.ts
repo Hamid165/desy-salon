@@ -55,14 +55,18 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 // ==========================================
 
 function toFrontendPackage(b: any): Package {
+  let category = b.category || 'Tata Rias'
+  if (category === 'Perawatan' || category.toLowerCase().includes('salon')) {
+    category = 'Salon'
+  } else if (['Akad', 'Resepsi', 'Wisuda', 'tata-rias'].includes(category)) {
+    category = 'Tata Rias'
+  }
   return {
     id: b.id,
     name: b.name,
-    category: b.category,
+    category,
     price: Number(b.price),
     priceMax: b.price_max ? Number(b.price_max) : undefined,
-    originalPrice: b.original_price ? Number(b.original_price) : undefined,
-    badge: b.badge || undefined,
     image: b.image,
     description: b.description,
     features: Array.isArray(b.features) ? b.features : [],
@@ -76,8 +80,8 @@ function toBackendPackage(f: Partial<Package>): any {
     category: f.category,
     price: f.price,
     price_max: f.priceMax || null,
-    original_price: f.originalPrice || null,
-    badge: f.badge || null,
+    original_price: null,
+    badge: null,
     image: f.image,
     description: f.description,
     features: f.features || [],
@@ -115,16 +119,15 @@ function toBackendSchedule(f: Partial<Schedule>): any {
 }
 
 function toFrontendGallery(b: any): GalleryItem {
+  const rawCat = b.category || b.event_type || 'Tata Rias'
+  const normalizedCategory = (rawCat === 'Salon' || rawCat === 'Perawatan' || rawCat.toLowerCase().includes('salon'))
+    ? 'Salon'
+    : 'Tata Rias'
   return {
     id: b.id,
     title: b.title,
-    category: b.category || (
-      b.event_type === 'Akad Nikah' ? 'Akad' :
-      b.event_type === 'Resepsi Adat' ? 'Resepsi' :
-      b.event_type === 'Wisuda & Pesta' ? 'Wisuda' :
-      (b.event_type || 'Akad')
-    ),
-    eventType: b.event_type,
+    category: normalizedCategory,
+    eventType: b.event_type || normalizedCategory,
     tag: b.tag,
     imageUrl: b.image_url,
     description: b.description || '',

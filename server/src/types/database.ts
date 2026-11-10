@@ -11,8 +11,6 @@ export interface Package {
   category: string
   price: number
   price_max?: number | null
-  original_price?: number | null
-  badge?: string | null
   image: string
   description: string
   features: string[]
@@ -29,14 +27,14 @@ export interface Schedule {
   session: 'Pagi' | 'Siang' | 'Sore' | 'Full Day'
   location: string
   notes?: string | null
-  status: 'Menunggu Konfirmasi' | 'Terkonfirmasi' | 'Menunggu DP' | 'Lunas'
+  status: 'Menunggu Konfirmasi' | 'DP' | 'Lunas' | 'Selesai'
   created_at?: string
 }
 
 export interface GalleryItem {
   id: string
   title: string
-  event_type: 'Akad Nikah' | 'Resepsi Adat' | 'Wisuda & Pesta'
+  event_type: string
   tag: string
   image_url: string
   description?: string | null

@@ -5,10 +5,8 @@ async function seed() {
 
   // 1. Categories
   const categories = [
-    { id: 'akad', name: 'Akad', slug: 'akad' },
-    { id: 'resepsi', name: 'Resepsi', slug: 'resepsi' },
-    { id: 'wisuda', name: 'Wisuda', slug: 'wisuda' },
-    { id: 'perawatan', name: 'Perawatan', slug: 'perawatan' },
+    { id: 'salon', name: 'Salon', slug: 'salon' },
+    { id: 'tata-rias', name: 'Tata Rias', slug: 'tata-rias' },
   ]
   const { error: catErr } = await supabase.from('categories').upsert(categories)
   if (catErr) console.warn('Gagal seed categories:', catErr.message)
@@ -19,11 +17,9 @@ async function seed() {
     {
       id: 'paket-akad',
       name: 'Akad Istimewa',
-      category: 'Akad',
+      category: 'Tata Rias',
       price: 1850000,
       price_max: 2500000,
-      original_price: 2200000,
-      badge: 'Favorit',
       image: 'https://images.unsplash.com/photo-1594552072238-b8a33785b261?auto=format&fit=crop&w=1000&q=85',
       description: 'Riasan anggun dan personal untuk momen sakral yang tak terlupakan.',
       features: ['Makeup akad premium', 'Hijab do & aksesori', 'Hairdo keluarga 1 orang', 'Touch-up sebelum acara'],
@@ -31,11 +27,9 @@ async function seed() {
     {
       id: 'paket-jawa',
       name: 'Paes Ageng Jawa',
-      category: 'Resepsi',
+      category: 'Tata Rias',
       price: 4250000,
       price_max: 5500000,
-      original_price: 4800000,
-      badge: 'Best seller',
       image: 'https://images.unsplash.com/photo-1537633552985-df8429e8048b?auto=format&fit=crop&w=1000&q=85',
       description: 'Tata rias tradisional dengan detail paes yang dibuat sepenuh hati.',
       features: ['Rias pengantin & paes', 'Busana adat lengkap', 'Melati & aksesori', 'Rias orang tua 2 orang'],
@@ -43,7 +37,7 @@ async function seed() {
     {
       id: 'paket-modern',
       name: 'Modern Grace',
-      category: 'Resepsi',
+      category: 'Tata Rias',
       price: 3250000,
       price_max: 4500000,
       image: 'https://images.unsplash.com/photo-1519741497674-611481863552?auto=format&fit=crop&w=1000&q=85',
@@ -53,7 +47,7 @@ async function seed() {
     {
       id: 'paket-wisuda',
       name: 'Wisuda Cantik',
-      category: 'Wisuda',
+      category: 'Tata Rias',
       price: 350000,
       price_max: 650000,
       image: 'https://images.unsplash.com/photo-1529636798458-92182e662485?auto=format&fit=crop&w=1000&q=85',
@@ -63,7 +57,7 @@ async function seed() {
     {
       id: 'paket-pra',
       name: 'Ritual Pra-Nikah',
-      category: 'Perawatan',
+      category: 'Salon',
       price: 650000,
       price_max: null,
       image: 'https://images.unsplash.com/photo-1512290923902-8a9f81dc236c?auto=format&fit=crop&w=1000&q=85',
@@ -73,11 +67,9 @@ async function seed() {
     {
       id: 'paket-akad-resepsi',
       name: 'Akad & Resepsi Lengkap',
-      category: 'Akad',
+      category: 'Tata Rias',
       price: 5950000,
       price_max: 7500000,
-      original_price: 6800000,
-      badge: 'Hemat 12%',
       image: 'https://images.unsplash.com/photo-1523438885200-e635ba2c371e?auto=format&fit=crop&w=1000&q=85',
       description: 'Satu tim andal untuk menemani setiap babak hari pernikahanmu.',
       features: ['Rias akad & resepsi', '2 set busana pengantin', 'Rias keluarga 4 orang', 'Tim standby seharian'],
@@ -89,9 +81,9 @@ async function seed() {
 
   // 3. Schedules
   const schedules = [
-    { id: 'jadwal-1', client_name: 'Nadia Putri', package_name: 'Akad Istimewa', event_date: '2026-11-14', event_time: '08:00', session: 'Pagi', location: 'Gedung Serbaguna Melati', notes: 'Makeup soft glam, kulit sensitif.', status: 'Terkonfirmasi' },
-    { id: 'jadwal-2', client_name: 'Aulia Rahma', package_name: 'Paes Ageng Jawa', event_date: '2026-11-14', event_time: '10:00', session: 'Pagi', location: 'Pendopo Taman Sari', notes: 'Konsultasi busana hari Jumat.', status: 'Menunggu DP' },
-    { id: 'jadwal-3', client_name: 'Sinta Maharani', package_name: 'Modern Grace', event_date: '2026-11-21', event_time: '13:00', session: 'Siang', location: 'Hotel Aruna', notes: '', status: 'Terkonfirmasi' },
+    { id: 'jadwal-1', client_name: 'Nadia Putri', package_name: 'Akad Istimewa', event_date: '2026-11-14', event_time: '08:00', session: 'Pagi', location: 'Gedung Serbaguna Melati', notes: 'Makeup soft glam, kulit sensitif.', status: 'DP' },
+    { id: 'jadwal-2', client_name: 'Aulia Rahma', package_name: 'Paes Ageng Jawa', event_date: '2026-11-14', event_time: '10:00', session: 'Pagi', location: 'Pendopo Taman Sari', notes: 'Konsultasi busana hari Jumat.', status: 'Menunggu Konfirmasi' },
+    { id: 'jadwal-3', client_name: 'Sinta Maharani', package_name: 'Modern Grace', event_date: '2026-11-21', event_time: '13:00', session: 'Siang', location: 'Hotel Aruna', notes: '', status: 'DP' },
   ]
   const { error: schErr } = await supabase.from('schedules').upsert(schedules)
   if (schErr) console.warn('Gagal seed schedules:', schErr.message)

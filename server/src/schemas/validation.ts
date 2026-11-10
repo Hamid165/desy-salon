@@ -17,11 +17,9 @@ export const packageSchema = z.object({
   category: z.string().min(1, 'Kategori paket wajib diisi'),
   price: z.number().positive('Harga harus lebih dari 0').max(100000000, 'Harga maksimal Rp 100.000.000'),
   price_max: z.number().positive().max(100000000, 'Harga batas atas maksimal Rp 100.000.000').nullable().optional(),
-  original_price: z.number().positive().max(100000000, 'Harga sebelum diskon maksimal Rp 100.000.000').nullable().optional(),
-  badge: z.string().max(18, 'Badge promo maksimal 18 karakter').nullable().optional(),
   image: z.string().min(1, 'URL gambar paket wajib diisi'),
   description: z.string().min(1, 'Deskripsi wajib diisi').max(150, 'Deskripsi maksimal 150 karakter'),
-  features: z.array(z.string().max(60, 'Tiap baris fitur maksimal 60 karakter')).max(8, 'Maksimal 8 baris fitur').default([]),
+  features: z.array(z.string().max(60, 'Tiap baris layanan maksimal 60 karakter')).max(8, 'Maksimal 8 baris layanan').default([]),
 })
 
 export const scheduleSchema = z.object({
@@ -34,17 +32,17 @@ export const scheduleSchema = z.object({
   session: z.enum(['Pagi', 'Siang', 'Sore', 'Full Day']),
   location: z.string().max(120, 'Lokasi acara maksimal 120 karakter').default(''),
   notes: z.string().max(200, 'Catatan maksimal 200 karakter').optional().default(''),
-  status: z.enum(['Menunggu Konfirmasi', 'Terkonfirmasi', 'Menunggu DP', 'Lunas']).default('Menunggu Konfirmasi'),
+  status: z.enum(['Menunggu Konfirmasi', 'DP', 'Lunas', 'Selesai']).default('Menunggu Konfirmasi'),
 })
 
 export const scheduleStatusSchema = z.object({
-  status: z.enum(['Menunggu Konfirmasi', 'Terkonfirmasi', 'Menunggu DP', 'Lunas']),
+  status: z.enum(['Menunggu Konfirmasi', 'DP', 'Lunas', 'Selesai']),
 })
 
 export const gallerySchema = z.object({
   id: z.string().optional(),
   title: z.string().min(1, 'Judul portofolio wajib diisi').max(50, 'Judul portofolio maksimal 50 karakter'),
-  event_type: z.enum(['Akad Nikah', 'Resepsi Adat', 'Wisuda & Pesta']),
+  event_type: z.string().min(1, 'Kategori atau tipe portofolio wajib diisi').max(50),
   tag: z.string().min(1, 'Tag wajib diisi').max(20, 'Tag maksimal 20 karakter'),
   image_url: z.string().min(1, 'URL gambar portofolio wajib diisi'),
   description: z.string().max(150, 'Deskripsi maksimal 150 karakter').optional().default(''),

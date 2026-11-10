@@ -170,3 +170,42 @@ INSERT INTO public.faqs (id, category, question, answer) VALUES
 )
 ON CONFLICT (id) DO NOTHING;
 
+-- 6. MIGRASI 2 KATEGORI: Salon & Tata Rias
+-- Menyesuaikan kategori di tabel categories & packages ke 2 kategori utama: Salon dan Tata Rias
+
+-- A. Masukkan 2 kategori utama (Salon & Tata Rias)
+INSERT INTO public.categories (id, name, slug) VALUES
+('salon', 'Salon', 'salon'),
+('tata-rias', 'Tata Rias', 'tata-rias')
+ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, slug = EXCLUDED.slug;
+
+-- B. Update paket yang ada ke kategori baru
+UPDATE public.packages 
+SET category = 'Tata Rias' 
+WHERE category IN ('Akad', 'Resepsi', 'Wisuda', 'tata-rias', 'Tata rias');
+
+UPDATE public.packages 
+SET category = 'Salon' 
+WHERE category IN ('Perawatan', 'Treatment', 'salon', 'Perawatan Salon');
+
+-- C. Hapus kategori lama yang sudah tidak dipakai
+DELETE FROM public.categories 
+WHERE id NOT IN ('salon', 'tata-rias');
+
+-- D. Lepas batasan check event_type pada tabel gallery agar fleksibel
+ALTER TABLE public.gallery DROP CONSTRAINT IF EXISTS gallery_event_type_check;
+
+-- 7. MIGRASI STATUS BOOKING: Menunggu Konfirmasi, DP, Lunas, Selesai
+UPDATE public.schedules SET status = 'DP' WHERE status = 'Terkonfirmasi';
+UPDATE public.schedules SET status = 'Menunggu Konfirmasi' WHERE status = 'Menunggu DP';
+
+ALTER TABLE public.schedules DROP CONSTRAINT IF EXISTS schedules_status_check;
+ALTER TABLE public.schedules ADD CONSTRAINT schedules_status_check 
+    CHECK (status IN ('Menunggu Konfirmasi', 'DP', 'Lunas', 'Selesai'));
+
+-- 8. HAPUS / SET NULL KOLOM original_price & badge PADA PACKAGES
+UPDATE public.packages SET original_price = NULL, badge = NULL;
+ALTER TABLE public.packages DROP COLUMN IF EXISTS original_price;
+ALTER TABLE public.packages DROP COLUMN IF EXISTS badge;
+
+

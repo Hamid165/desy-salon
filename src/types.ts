@@ -4,8 +4,6 @@ export interface Package {
   category: string
   price: number
   priceMax?: number
-  originalPrice?: number
-  badge?: string
   image: string
   description: string
   features: string[]
@@ -27,7 +25,7 @@ export interface Schedule {
   session: 'Pagi' | 'Siang' | 'Sore' | 'Full Day'
   location: string
   notes: string
-  status: 'Menunggu Konfirmasi' | 'Terkonfirmasi' | 'Menunggu DP' | 'Lunas'
+  status: 'Menunggu Konfirmasi' | 'DP' | 'Lunas' | 'Selesai'
 }
 
 export interface GalleryItem {
