@@ -73,3 +73,32 @@ button { cursor: pointer; }
     scrollbar-width: none;
   }
 }
+
+/* Blur halus pada background saat popup widget Fouita dibuka */
+.ft .fixed.inset-0,
+.ft .fixed.top-0.left-0.w-full.h-full {
+  backdrop-filter: blur(6px) !important;
+  -webkit-backdrop-filter: blur(6px) !important;
+}
+
+/* Responsif mobile (< 640px): buat grid Fouita 3 kolom rapat ala feed Instagram agar tampil penuh dan mulus di-scroll */
+@media (max-width: 639px) {
+  #portfolio .ft-container {
+    padding: 12px 10px !important;
+  }
+
+  #portfolio .ft-layout .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 4px !important;
+  }
+
+  #portfolio .ft-card {
+    border-radius: 6px !important;
+    border-width: 0 !important;
+  }
+
+  #portfolio .ft-card > div[style*="height"] {
+    height: auto !important;
+    aspect-ratio: 4 / 5;
+  }
+}

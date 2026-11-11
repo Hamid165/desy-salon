@@ -12,6 +12,7 @@ const STORE_KEY = 'desy-salon-store-v1'
 const legacyAddresses = [
   'Jl. Melati Indah No. 18, Yogyakarta',
   'Jl. Desa Pekuncen No.15, Pekuncen, Kec. Jatilawang, Kabupaten Banyumas, Jawa Tengah 53174',
+  'Jl. Desa Pekuncen No.15, RT 02/RW 03, Pekuncen, Kec. Jatilawang, Kabupaten Banyumas, Jawa Tengah 53174',
 ]
 const legacyProfile = {
   phone: '6281234567890',
@@ -28,7 +29,7 @@ const MONTH_NAMES = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
 ] as const
-const publicRoutes = ['/', '/paket', '/sertifikat'] as const
+const publicRoutes = ['/', '/paket', '/portfolio', '/sertifikat'] as const
 type PublicRoute = typeof publicRoutes[number] | '404'
 type EditorKind = 'package' | 'schedule' | 'gallery' | 'category' | 'certificate' | 'faq'
 type AdminTab = 'Katalog' | 'Kategori' | 'Jadwal' | 'Portfolio' | 'Sertifikat' | 'FAQ' | 'Akun'
@@ -54,6 +55,21 @@ function readStore(): SalonStore {
       }
       if (!profile.instagram) profile.instagram = initialStore.profile.instagram
       if (!profile.instagramUrl) profile.instagramUrl = initialStore.profile.instagramUrl
+      if (
+        !parsed.profile?.portfolioFouitaUrl ||
+        !profile.portfolioSource ||
+        (['elfsight', 'rss', 'curator'] as string[]).includes(String(profile.portfolioSource))
+      ) {
+        profile.portfolioSource = 'fouita'
+      }
+      if (
+        !profile.portfolioFouitaUrl ||
+        profile.portfolioFouitaUrl === 'https://emb.fouita.com/widget/0x57ed64/ftj78d28e'
+      ) {
+        profile.portfolioFouitaUrl = initialStore.profile.portfolioFouitaUrl
+      }
+      delete (profile as Record<string, unknown>).portfolioFeedUrl
+      delete (profile as Record<string, unknown>).portfolioCuratorUrl
       if (!profile.tiktok) profile.tiktok = initialStore.profile.tiktok
       if (!profile.tiktokUrl) profile.tiktokUrl = initialStore.profile.tiktokUrl
       if (!profile.mapsUrl || profile.mapsUrl === 'https://share.google/25K2BGNsWXDmZ9Q69') {
@@ -163,6 +179,149 @@ function getLocalIsoDate(d: Date) {
 function normalizePhone(phone: string) {
   const digits = phone.replace(/\D/g, '')
   return digits.startsWith('0') ? `62${digits.slice(1)}` : digits
+}
+
+interface FeedPhoto {
+  id: string
+  title: string
+  imageUrl: string
+  link?: string
+  category?: string
+  description?: string
+}
+
+const DEFAULT_FOUITA_SCRIPT_URL = 'https://wdg.fouita.com/widgets/0x57ed64.js'
+const DEFAULT_FOUITA_WIDGET_ID = 'ftj78d28e'
+const DEFAULT_FOUITA_DATA_KEY = 'Instagram Feed '
+const FOUITA_HEALTH_CACHE_KEY = 'desy-fouita-health-v1'
+const FOUITA_HEALTH_TTL_MS = 10 * 60 * 1000
+const loadedFouitaScripts = new Set<string>()
+
+function isSafeHttpUrl(url: string): boolean {
+  return /^https?:\/\/.+/i.test(url.trim())
+}
+
+function parseFouitaConfig(raw: string): {
+  mode: 'script' | 'iframe'
+  url: string
+  widgetId: string
+  dataKey: string
+} {
+  const trimmed = raw.trim()
+  if (!trimmed) {
+    return {
+      mode: 'script',
+      url: '',
+      widgetId: DEFAULT_FOUITA_WIDGET_ID,
+      dataKey: DEFAULT_FOUITA_DATA_KEY,
+    }
+  }
+
+  const scriptMatch = trimmed.match(/https?:\/\/wdg\.fouita\.com\/widgets\/([a-zA-Z0-9_-]+)\.js(?:\?[^"'\s<]*)?/i)
+  const idMatch = trimmed.match(/\bid=["'](ft[a-zA-Z0-9_-]+)["']/i)
+  const keyMatch = trimmed.match(/\bdata-key=["']([^"']+)["']/i)
+  if (scriptMatch) {
+    return {
+      mode: 'script',
+      url: scriptMatch[0],
+      widgetId: idMatch ? idMatch[1] : DEFAULT_FOUITA_WIDGET_ID,
+      dataKey: keyMatch ? keyMatch[1] : DEFAULT_FOUITA_DATA_KEY,
+    }
+  }
+
+  const embMatch = trimmed.match(/https?:\/\/emb\.fouita\.com\/widget\/([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)/i)
+  if (embMatch) {
+    return {
+      mode: 'script',
+      url: `https://wdg.fouita.com/widgets/${embMatch[1]}.js`,
+      widgetId: embMatch[2],
+      dataKey: DEFAULT_FOUITA_DATA_KEY,
+    }
+  }
+
+  return {
+    mode: 'iframe',
+    url: isSafeHttpUrl(trimmed) ? trimmed : '',
+    widgetId: DEFAULT_FOUITA_WIDGET_ID,
+    dataKey: DEFAULT_FOUITA_DATA_KEY,
+  }
+}
+
+function extractFouitaWidgetUid(url: string): string {
+  const scriptMatch = url.match(/https?:\/\/wdg\.fouita\.com\/widgets\/([a-zA-Z0-9_-]+)\.js/i)
+  if (scriptMatch) return scriptMatch[1]
+  const embMatch = url.match(/https?:\/\/emb\.fouita\.com\/widget\/([a-zA-Z0-9_-]+)\//i)
+  return embMatch ? embMatch[1] : ''
+}
+
+function clearFouitaHealthCache() {
+  try {
+    sessionStorage.removeItem(FOUITA_HEALTH_CACHE_KEY)
+  } catch {
+    // Abaikan jika sessionStorage tidak tersedia
+  }
+}
+
+async function checkFouitaWidgetAvailable(embedUrl: string): Promise<'active' | 'empty' | 'unknown'> {
+  const uid = extractFouitaWidgetUid(embedUrl)
+  if (!uid) return 'unknown'
+
+  try {
+    const cachedRaw = sessionStorage.getItem(FOUITA_HEALTH_CACHE_KEY)
+    if (cachedRaw) {
+      const cached = JSON.parse(cachedRaw) as { uid?: string; status?: string; checkedAt?: number }
+      if (
+        cached.uid === uid &&
+        cached.status === 'active' &&
+        typeof cached.checkedAt === 'number' &&
+        Date.now() - cached.checkedAt < FOUITA_HEALTH_TTL_MS
+      ) {
+        return 'active'
+      }
+    }
+  } catch {
+    // Abaikan cache korup
+  }
+
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 6000)
+
+  try {
+    const res = await fetch('https://api2.fouita.com/v1/q/widget', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid }),
+      signal: controller.signal,
+    })
+
+    if ([402, 403, 404, 429].includes(res.status)) {
+      clearFouitaHealthCache()
+      return 'empty'
+    }
+    if (!res.ok) return 'unknown'
+
+    const rawJson = (await res.json()) as { json?: string; q?: any[] }
+    const decoded = rawJson?.json
+      ? (JSON.parse(atob(rawJson.json)) as { q?: any[] })
+      : rawJson
+    const widget = decoded?.q?.[0]
+
+    if (!widget || widget.live === false || widget.active === false || !Array.isArray(widget.data_feed) || widget.data_feed.length === 0) {
+      clearFouitaHealthCache()
+      return 'empty'
+    }
+
+    try {
+      sessionStorage.setItem(FOUITA_HEALTH_CACHE_KEY, JSON.stringify({ uid, status: 'active', checkedAt: Date.now() }))
+    } catch {
+      // Abaikan
+    }
+    return 'active'
+  } catch {
+    return 'unknown'
+  } finally {
+    window.clearTimeout(timeout)
+  }
 }
 
 function sessionForTime(value: string): Schedule['session'] {
@@ -482,12 +641,17 @@ function App() {
     const facebookUrl = String(form.get('facebookUrl') ?? '').trim() || initialStore.profile.facebookUrl
     const instagram = String(form.get('instagram') ?? '').trim() || '@desyana_77'
     const instagramUrl = String(form.get('instagramUrl') ?? '').trim() || 'https://www.instagram.com/desyana_77/'
+    const rawFouitaInput = String(form.get('portfolioFouitaUrl') ?? '').trim()
+    const portfolioFouitaUrl = parseFouitaConfig(rawFouitaInput).url
     const tiktok = String(form.get('tiktok') ?? '').trim() || '@desyana.s'
     const tiktokUrl = String(form.get('tiktokUrl') ?? '').trim() || 'https://www.tiktok.com/@desyana.s'
     const mapsUrl = String(form.get('mapsUrl') ?? '').trim() || initialStore.profile.mapsUrl || 'https://maps.app.goo.gl/1mqYn88NWe9zq8AV9'
 
     if (!/^62\d{8,13}$/.test(phone)) return setNotice('Nomor WhatsApp harus berformat 62, contoh 628123456789.')
     if (!username || password.length < 6) return setNotice('Username wajib diisi dan password minimal 6 karakter.')
+    if (rawFouitaInput && !portfolioFouitaUrl) {
+      return setNotice('Link widget Fouita harus diawali https:// atau http://.')
+    }
     setStore((current) => ({
       ...current,
       profile: {
@@ -500,12 +664,56 @@ function App() {
         facebookUrl,
         instagram,
         instagramUrl,
+        portfolioFouitaUrl,
+        portfolioSource: portfolioFouitaUrl ? 'fouita' : 'gallery',
+        portfolioAutoFallbackAt: undefined,
         tiktok,
         tiktokUrl,
       },
       credentials: { username, password },
     }))
+    clearFouitaHealthCache()
     setNotice('Pengaturan akun berhasil diperbarui.')
+  }
+
+  function savePortfolioConfig(source: 'fouita' | 'gallery', fouitaInput: string) {
+    const parsed = parseFouitaConfig(fouitaInput)
+    if (source === 'fouita' && !parsed.url) {
+      setNotice('Masukkan URL script Fouita yang valid (contoh: https://wdg.fouita.com/widgets/0x57ed64.js) atau kode embed-nya.')
+      return
+    }
+    if (source === 'fouita') {
+      clearFouitaHealthCache()
+    }
+    setStore((current) => ({
+      ...current,
+      profile: {
+        ...current.profile,
+        portfolioSource: source,
+        portfolioFouitaUrl: parsed.url || current.profile.portfolioFouitaUrl || DEFAULT_FOUITA_SCRIPT_URL,
+        portfolioAutoFallbackAt: undefined,
+      },
+    }))
+    setNotice(
+      source === 'fouita'
+        ? 'Sumber Portfolio publik diatur ke Fouita Instagram Widget (Otomatis).'
+        : 'Sumber Portfolio publik diatur ke Galeri Studio (Foto Manual).'
+    )
+  }
+
+  function handleAutoFallbackGallery() {
+    clearFouitaHealthCache()
+    setStore((current) => {
+      if (current.profile.portfolioSource === 'gallery') return current
+      return {
+        ...current,
+        profile: {
+          ...current.profile,
+          portfolioSource: 'gallery',
+          portfolioAutoFallbackAt: new Date().toISOString(),
+        },
+      }
+    })
   }
 
   function removeCategory(category: Category) {
@@ -628,6 +836,7 @@ function App() {
       onDelete={deleteEntity}
       onCategoryRemove={removeCategory}
       onSettingsSave={saveSettings}
+      onSavePortfolioConfig={savePortfolioConfig}
       onLogout={confirmLogout}
     />
     {editor && <EntityModal editor={editor} store={store} onClose={() => setEditor(null)} onSave={saveEntity} />}
@@ -674,15 +883,15 @@ function App() {
             </div>
           </section>
 
-          {/* Section Tanya Jawab / FAQ (Tepat di Atas Portofolio) */}
-          <FaqSection faqs={store.faqs} phone={store.profile.phone} salonName={store.profile.name} />
+          {/* Section Layanan Pernikahan & Salon (Inspirasi Luxury Java Heritage) */}
+          <WeddingServicesSection
+            phone={store.profile.phone}
+            salonName={store.profile.name}
+            onNavigate={navigatePublic}
+          />
 
-          {/* Galeri Portofolio di Halaman Utama */}
-          <section className="relative overflow-hidden bg-gradient-to-b from-white via-rose-50/20 to-white px-5 py-16 sm:px-8 sm:py-20 lg:px-12">
-            <div className="mx-auto max-w-7xl">
-              <PortfolioCarousel items={store.gallery} showTopBorder={false} />
-            </div>
-          </section>
+          {/* Section Tanya Jawab / FAQ */}
+          <FaqSection faqs={store.faqs} phone={store.profile.phone} salonName={store.profile.name} />
         </>
       )}
 
@@ -797,6 +1006,12 @@ function App() {
         </div>
       </section>}
 
+      <PortfolioSection
+        store={store}
+        active={publicRoute === '/portfolio'}
+        onAutoFallbackGallery={handleAutoFallbackGallery}
+      />
+
       {publicRoute === '/sertifikat' && (
         <section id="sertifikat" className="min-h-[70vh] bg-rose-50/40 px-5 py-16 sm:px-8 lg:px-12 lg:py-20">
           <div className="mx-auto max-w-7xl">
@@ -894,6 +1109,243 @@ function NotFoundSection({ onNavigate }: { onNavigate: (route: PublicRoute) => v
   )
 }
 
+function PortfolioSection({
+  store,
+  active,
+  onAutoFallbackGallery,
+}: {
+  store: SalonStore
+  active: boolean
+  onAutoFallbackGallery: () => void
+}) {
+  const fouitaConfig = useMemo(
+    () => parseFouitaConfig(store.profile.portfolioFouitaUrl || DEFAULT_FOUITA_SCRIPT_URL),
+    [store.profile.portfolioFouitaUrl]
+  )
+  const source: 'fouita' | 'gallery' =
+    store.profile.portfolioSource === 'gallery' || !fouitaConfig.url ? 'gallery' : 'fouita'
+  const [hasActivated, setHasActivated] = useState(active)
+  const [fouitaError, setFouitaError] = useState(false)
+  const [viewingPhoto, setViewingPhoto] = useState<FeedPhoto | null>(null)
+  const fouitaContainerRef = useRef<HTMLDivElement | null>(null)
+  const fallbackCallbackRef = useRef(onAutoFallbackGallery)
+
+  useEffect(() => {
+    if (active) setHasActivated(true)
+  }, [active])
+
+  useEffect(() => {
+    fallbackCallbackRef.current = onAutoFallbackGallery
+  }, [onAutoFallbackGallery])
+
+  const igHandle = store.profile.instagram || '@desyana_77'
+  const igUrl = store.profile.instagramUrl || 'https://www.instagram.com/desyana_77/'
+  const fallbackPhotos: FeedPhoto[] = useMemo(
+    () =>
+      store.gallery.slice(0, 20).map((item) => ({
+        id: item.id,
+        title: item.title,
+        imageUrl: item.imageUrl,
+        category: item.category || item.eventType || 'Tata Rias',
+        description: item.description,
+      })),
+    [store.gallery]
+  )
+
+  useEffect(() => {
+    setFouitaError(false)
+    if (!hasActivated || source !== 'fouita' || !fouitaConfig.url) return
+
+    let cancelled = false
+    let domCheckTimer: number | undefined
+
+    const scheduleDomCheck = () => {
+      window.clearTimeout(domCheckTimer)
+      // Cadangan pemeriksaan DOM: jika 15 detik setelah script termuat widget tetap kosong, alihkan ke Foto Manual
+      domCheckTimer = window.setTimeout(() => {
+        if (cancelled) return
+        const container = fouitaContainerRef.current
+        if (container && container.querySelectorAll('.ft-card, .ft-container').length === 0) {
+          setFouitaError(true)
+          fallbackCallbackRef.current()
+        }
+      }, 15000)
+    }
+
+    checkFouitaWidgetAvailable(fouitaConfig.url).then((status) => {
+      if (cancelled) return
+      if (status === 'empty') {
+        setFouitaError(true)
+        fallbackCallbackRef.current()
+      }
+    })
+
+    if (fouitaConfig.mode !== 'script') return () => { cancelled = true }
+
+    const existingScript = document.querySelector<HTMLScriptElement>(`script[data-fouita-widget="${fouitaConfig.url}"]`)
+    if (!loadedFouitaScripts.has(fouitaConfig.url) && !existingScript) {
+      loadedFouitaScripts.add(fouitaConfig.url)
+      if (fouitaContainerRef.current) {
+        fouitaContainerRef.current.innerHTML = ''
+      }
+
+      const script = document.createElement('script')
+      script.type = 'text/javascript'
+      script.async = true
+      script.src = fouitaConfig.url
+      script.setAttribute('data-fouita-widget', fouitaConfig.url)
+      script.onload = scheduleDomCheck
+      script.onerror = () => {
+        loadedFouitaScripts.delete(fouitaConfig.url)
+        if (!cancelled) {
+          setFouitaError(true)
+          fallbackCallbackRef.current()
+        }
+      }
+      document.body.appendChild(script)
+    } else {
+      scheduleDomCheck()
+    }
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(domCheckTimer)
+    }
+  }, [hasActivated, source, fouitaConfig.mode, fouitaConfig.url, fouitaConfig.widgetId])
+
+  return (
+    <section
+      id="portfolio"
+      hidden={!active}
+      className={active ? 'min-h-[70vh] bg-rose-50/40 px-4 py-14 sm:px-8 lg:px-12 lg:py-20' : 'hidden'}
+    >
+      <div className="mx-auto max-w-7xl">
+        <SectionHeading
+          eyebrow="Karya & Instagram"
+          title="Portofolio Desy Salon"
+          description="Koleksi riasan pengantin, wisuda, dan momen terbaik dari Instagram resmi Desy Salon."
+        />
+
+        <div className="mb-8 flex justify-center">
+          <a
+            href={igUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white px-5 py-2.5 text-sm font-bold text-rose-600 shadow-xs transition hover:-translate-y-0.5 hover:border-rose-300 hover:bg-rose-50"
+          >
+            <Instagram size={17} />
+            <span>Ikuti {igHandle} di Instagram</span>
+          </a>
+        </div>
+
+        {source === 'fouita' && !fouitaError ? (
+          fouitaConfig.mode === 'script' ? (
+            <div className="mx-auto min-h-[280px] max-w-7xl">
+              <div
+                ref={fouitaContainerRef}
+                data-key={fouitaConfig.dataKey}
+                className="ft"
+                id={fouitaConfig.widgetId}
+              />
+            </div>
+          ) : (
+            <div className="mx-auto max-w-7xl overflow-hidden rounded-2xl border border-rose-100/80 bg-white shadow-xs">
+              <iframe
+                src={fouitaConfig.url}
+                title="Instagram Feed Desy Salon"
+                className="h-[760px] w-full border-0 sm:h-[960px] lg:h-[1100px]"
+                allowFullScreen
+                onError={() => {
+                  setFouitaError(true)
+                  fallbackCallbackRef.current()
+                }}
+              />
+            </div>
+          )
+        ) : fallbackPhotos.length > 0 ? (
+          <>
+            {source === 'fouita' && fouitaError && (
+              <p className="mb-4 text-center text-xs font-medium text-amber-700">
+                Widget Fouita sedang tidak tersedia. Menampilkan foto galeri manual studio.
+              </p>
+            )}
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 lg:gap-5">
+              {fallbackPhotos.map((photo) => (
+                <article
+                  key={photo.id}
+                  onClick={() => setViewingPhoto(photo)}
+                  className="group relative aspect-[4/5] sm:aspect-square cursor-pointer overflow-hidden rounded-lg sm:rounded-2xl border border-rose-100/80 bg-white shadow-xs transition-all duration-300 hover:-translate-y-1 hover:border-rose-300 hover:shadow-md"
+                >
+                  <img
+                    src={photo.imageUrl}
+                    alt={photo.title}
+                    className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                    loading="lazy"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-950/15 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100 flex flex-col justify-end p-4 sm:p-5">
+                    {photo.category && (
+                      <span className="mb-1.5 inline-block w-fit rounded-full bg-rose-500/90 px-2.5 py-0.5 text-[11px] font-bold text-white">
+                        {photo.category}
+                      </span>
+                    )}
+                    <h3 className="font-display text-sm sm:text-base font-bold text-white leading-snug line-clamp-2">{photo.title}</h3>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </>
+        ) : (
+          <EmptyState label="Foto portofolio akan segera ditambahkan." />
+        )}
+
+        <div className="mt-8 flex justify-center">
+          <a
+            href={igUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-primary !rounded-full !px-7 !py-3.5 shadow-sm transition hover:-translate-y-0.5"
+          >
+            <Instagram size={18} />
+            <span>Lihat Lainnya di Instagram</span>
+            <ArrowRight size={17} />
+          </a>
+        </div>
+      </div>
+
+      {viewingPhoto && (
+        <ModalFrame onClose={() => setViewingPhoto(null)}>
+          <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100">
+            <h3 className="font-display text-lg font-bold text-slate-900 truncate">{viewingPhoto.title}</h3>
+            <button aria-label="Tutup" onClick={() => setViewingPhoto(null)} className="shrink-0 rounded-xl p-2 text-slate-400 hover:bg-slate-100">
+              <X size={20} />
+            </button>
+          </div>
+          <div className="mt-3 flex items-center justify-center max-h-[68vh] overflow-hidden rounded-xl bg-slate-50 p-1">
+            <img src={viewingPhoto.imageUrl} alt={viewingPhoto.title} className="max-h-[64vh] w-auto max-w-full rounded-lg object-contain" />
+          </div>
+          {(viewingPhoto.description || viewingPhoto.link) && (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              {viewingPhoto.description && (
+                <p className="text-sm leading-6 text-slate-600">{viewingPhoto.description}</p>
+              )}
+              {viewingPhoto.link && (
+                <a
+                  href={viewingPhoto.link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ml-auto inline-flex items-center gap-1.5 text-xs font-bold text-rose-600 hover:underline"
+                >
+                  <Instagram size={14} /> Lihat postingan
+                </a>
+              )}
+            </div>
+          )}
+        </ModalFrame>
+      )}
+    </section>
+  )
+}
+
 function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavigate, phone }: {
   profileName: string
   activeRoute: PublicRoute
@@ -905,17 +1357,18 @@ function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavig
   const links = [
     { name: 'Beranda', href: '/' as PublicRoute, icon: Home },
     { name: 'Katalog', href: '/paket' as PublicRoute, icon: Sparkles },
+    { name: 'Portfolio', href: '/portfolio' as PublicRoute, icon: Image },
     { name: 'Sertifikat', href: '/sertifikat' as PublicRoute, icon: Award },
   ]
   return <header className="sticky top-0 z-40 border-b border-rose-100/70 bg-white/85 backdrop-blur-xl">
     <div className="relative mx-auto flex h-20 sm:h-[84px] max-w-7xl items-center justify-between px-5 sm:px-8 lg:px-12">
       {/* Sisi Kiri: Logo Studio */}
       <a href="/" onClick={(event) => { event.preventDefault(); onNavigate('/') }} className="z-10 flex shrink-0 items-center">
-        <img src={brandLogo} alt={profileName} className="h-12 sm:h-14 w-auto max-w-[230px] sm:max-w-[270px] object-contain transition-all" />
+        <img src={brandLogo} alt={profileName} className="h-12 sm:h-14 w-auto max-w-[190px] lg:max-w-[270px] object-contain transition-all" />
       </a>
 
-      {/* Tengah: Navigasi Beranda & Katalog di posisi Center */}
-      <nav aria-label="Menu Utama" className="hidden md:flex md:absolute md:left-1/2 md:-translate-x-1/2 items-center gap-7">
+      {/* Tengah: Navigasi Beranda, Katalog, Portfolio & Sertifikat di posisi Center */}
+      <nav aria-label="Menu Utama" className="hidden md:flex md:absolute md:left-1/2 md:-translate-x-1/2 items-center md:gap-5 lg:gap-7">
         {links.map(({ name, href, icon: Icon }) => (
           <a
             key={name}
@@ -1049,6 +1502,91 @@ function PackageCard({ item, onBook }: { item: Package; onBook: () => void }) {
         </div>
       </div>
     </article>
+  )
+}
+
+function WeddingServicesSection({
+  phone: _phone,
+  salonName: _salonName,
+  onNavigate: _onNavigate,
+}: {
+  phone?: string
+  salonName?: string
+  onNavigate?: (route: PublicRoute) => void
+} = {}) {
+  return (
+    <section id="layanan-utama" className="relative overflow-hidden border-b border-rose-100/70 bg-gradient-to-b from-white via-rose-50/30 to-white py-16 sm:py-24 lg:py-28">
+      {/* Subtle decorative glowing ambient backdrops */}
+      <div className="pointer-events-none absolute -top-24 left-1/2 h-[450px] w-[750px] -translate-x-1/2 rounded-full bg-rose-200/20 blur-[130px]" />
+      <div className="pointer-events-none absolute -bottom-24 right-10 h-[380px] w-[550px] rounded-full bg-amber-100/30 blur-[120px]" />
+
+      <div className="relative mx-auto max-w-7xl px-5 sm:px-8 lg:px-12">
+        {/* Section Header */}
+        <div className="text-center">
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-200/80 bg-rose-50/80 px-4 py-1.5 text-xs font-bold uppercase tracking-wider text-rose-600 shadow-2xs backdrop-blur">
+            <Sparkles size={14} className="shrink-0 text-amber-500" />
+            <span>Layanan Eksklusif Desy Salon</span>
+          </div>
+          <h2 className="mt-4 font-display text-2xl font-semibold uppercase tracking-[0.16em] text-slate-900 sm:text-3xl lg:text-4xl">
+            LAYANAN TATA RIAS PENGANTIN DAN SALON
+          </h2>
+          <div className="mx-auto mt-4 h-0.5 w-16 rounded-full bg-gradient-to-r from-rose-300 via-rose-500 to-rose-300 sm:w-24" />
+        </div>
+
+        {/* Content Rows */}
+        <div className="mt-14 space-y-16 sm:mt-20 sm:space-y-24 lg:space-y-28">
+          {/* Row 1: Tata Rias (Kiri: Foto, Kanan: Teks) */}
+          <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-2 lg:gap-16 xl:gap-20">
+            {/* Foto Tata Rias */}
+            <div className="group relative overflow-hidden rounded-3xl border border-rose-100/90 bg-white p-2.5 shadow-xl shadow-rose-950/5 transition-all duration-500 hover:border-rose-200 hover:shadow-2xl">
+              <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-rose-50">
+                <img
+                  src="https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=1200&q=85"
+                  alt="Proses Tata Rias Pengantin Desy Salon"
+                  className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+
+            {/* Teks Tata Rias */}
+            <div className="flex flex-col justify-center">
+              <h3 className="font-display text-lg font-semibold uppercase tracking-[0.05em] text-slate-900 whitespace-nowrap sm:text-2xl sm:tracking-[0.08em] lg:text-[23px] xl:text-[27px]">
+                TATA RIAS PENGANTIN <span className="font-sans font-medium text-[0.92em]">&amp;</span> WISUDA
+              </h3>
+              <p className="mt-4 text-justify text-sm font-normal leading-relaxed text-slate-600 sm:text-[15px] sm:leading-loose">
+                Didedikasikan untuk menyempurnakan setiap momen istimewa Anda, mulai dari prosesi sakral pernikahan hingga perayaan kelulusan wisuda yang membanggakan. Dengan pengalaman terpercaya sejak tahun 1993, Desy Salon menghadirkan keahlian tata rias Paes Ageng Adat Jawa yang sarat pakem dan keagungan tradisi, riasan Modern Grace yang flawless dan mempesona, hingga pulasan makeup wisuda yang natural, segar, dan tahan lama sepanjang hari bahagia Anda. Setiap detail dipersembahkan dengan cinta dan ketelitian untuk memancarkan pesona terbaik serta rasa percaya diri dari dalam diri Anda.
+              </p>
+            </div>
+          </div>
+
+          {/* Row 2: Salon & Spa (Kiri: Teks, Kanan: Foto) */}
+          <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-2 lg:gap-16 xl:gap-20">
+            {/* Teks Salon (Desktop kiri: order-1, Mobile: order-2) */}
+            <div className="order-2 flex flex-col justify-center lg:order-1">
+              <h3 className="font-display text-lg font-semibold uppercase tracking-[0.05em] text-slate-900 whitespace-nowrap sm:text-2xl sm:tracking-[0.08em] lg:text-[23px] xl:text-[27px]">
+                PERAWATAN SALON
+              </h3>
+              <p className="mt-4 text-justify text-sm font-normal leading-relaxed text-slate-600 sm:text-[15px] sm:leading-loose">
+                Menghadirkan layanan perawatan kecantikan rambut dan tubuh yang lengkap untuk menjaga kesegaran serta penampilan terbaik Anda setiap hari. Kami melayani beragam kebutuhan salon umum seperti potong rambut, creambath bernutrisi, hair spa, pewarnaan rambut (hair coloring), rebonding, smoothing, hingga perawatan facial yang menyegarkan kulit wajah. Didukung oleh kapster berpengalaman dan suasana yang nyaman, Desy Salon siap memberikan relaksasi maksimal agar Anda selalu tampil prima, segar, dan percaya diri di setiap kesempatan.
+              </p>
+            </div>
+
+            {/* Foto Salon (Desktop kanan: order-2, Mobile: order-1) */}
+            <div className="order-1 group relative overflow-hidden rounded-3xl border border-rose-100/90 bg-white p-2.5 shadow-xl shadow-rose-950/5 transition-all duration-500 hover:border-rose-200 hover:shadow-2xl lg:order-2">
+              <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-rose-50">
+                <img
+                  src="https://images.unsplash.com/photo-1605497788044-5a32c7078486?auto=format&fit=crop&w=1200&q=85"
+                  alt="Potong Rambut dan Perawatan Salon Desy Salon"
+                  className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -1190,147 +1728,11 @@ function FaqSection({ faqs, phone, salonName }: { faqs: FaqItem[]; phone: string
   )
 }
 
-function PortfolioCarousel({ items, showTopBorder = true }: { items: GalleryItem[]; showTopBorder?: boolean }) {
-  const track = useRef<HTMLDivElement>(null)
-  const [activeIndex, setActiveIndex] = useState(0)
-  const [isPaused, setIsPaused] = useState(false)
-
-  // Auto-scroll berputar otomatis
-  useEffect(() => {
-    if (isPaused || items.length <= 1) return
-    const timer = window.setInterval(() => {
-      setActiveIndex((prev) => (prev + 1) % items.length)
-    }, 3500)
-    return () => window.clearInterval(timer)
-  }, [isPaused, items.length])
-
-  // Geser posisi scroll secara halus mengikuti activeIndex
-  useEffect(() => {
-    if (!track.current || items.length === 0) return
-    const container = track.current
-    const card = container.children[activeIndex] as HTMLElement | undefined
-    if (card) {
-      const targetScroll = card.offsetLeft - container.offsetLeft - (container.clientWidth - card.clientWidth) / 2
-      container.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' })
-    }
-  }, [activeIndex, items.length])
-
-  function scroll(direction: -1 | 1) {
-    setActiveIndex((prev) => {
-      if (direction === -1) {
-        return (prev - 1 + items.length) % items.length
-      } else {
-        return (prev + 1) % items.length
-      }
-    })
-  }
-
-  return (
-    <section className={`relative ${showTopBorder ? 'mt-16 border-t border-rose-100 pt-12' : 'pt-2'}`}>
-      <div className="mb-6 flex flex-col items-center text-center">
-        <SectionHeading
-          eyebrow="Portofolio rias"
-          title="Inspirasi dari karya kami"
-          align="center"
-        />
-      </div>
-
-      {items.length ? (
-        <div
-          onMouseEnter={() => setIsPaused(true)}
-          onMouseLeave={() => setIsPaused(false)}
-          onTouchStart={() => setIsPaused(true)}
-          onTouchEnd={() => setIsPaused(false)}
-          className="relative"
-        >
-          <div
-            ref={track}
-            className="flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth pb-4 pt-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          >
-            {items.map((item, idx) => {
-              const isActive = idx === activeIndex
-              return (
-                <article
-                  key={item.id}
-                  onClick={() => setActiveIndex(idx)}
-                  className={`group relative h-80 w-[82%] shrink-0 snap-center cursor-pointer overflow-hidden rounded-2xl bg-slate-200 transition-all duration-500 sm:h-96 sm:w-[48%] lg:w-[32%] ${
-                    isActive
-                      ? 'ring-2 ring-rose-500/90 shadow-xl scale-[1.01]'
-                      : 'opacity-90 hover:opacity-100 hover:shadow-md'
-                  }`}
-                >
-                  <img
-                    src={item.imageUrl}
-                    alt={item.title}
-                    className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
-                    loading="lazy"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-950/85 via-slate-950/20 to-transparent" />
-                  <div className="absolute inset-x-0 bottom-0 p-5 text-white">
-                    <div className="mb-2 flex flex-wrap gap-2">
-                      <span className="rounded-full bg-white/25 px-2.5 py-1 text-[10px] font-semibold backdrop-blur-md">
-                        {item.category || item.eventType}
-                      </span>
-                      <span className="rounded-full bg-rose-500/90 px-2.5 py-1 text-[10px] font-semibold shadow-xs">
-                        {item.tag}
-                      </span>
-                    </div>
-                    <h3 className="font-display text-xl font-semibold leading-snug">{item.title}</h3>
-                    <p className="mt-1 max-w-sm text-xs leading-5 text-white/80 line-clamp-2">{item.description}</p>
-                  </div>
-                </article>
-              )
-            })}
-          </div>
-
-          {/* Navigasi Prev/Next dan Dots Indicator di Bawah Gambar */}
-          <div className="mt-4 flex items-center justify-center gap-3">
-            <button
-              type="button"
-              aria-label="Foto sebelumnya"
-              onClick={() => scroll(-1)}
-              className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-xs transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"
-            >
-              <ChevronLeft size={18} />
-            </button>
-
-            <div className="flex items-center gap-1.5">
-              {items.map((_, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => setActiveIndex(idx)}
-                  aria-label={`Lihat karya ke-${idx + 1}`}
-                  className={`h-2 rounded-full transition-all duration-300 ${
-                    idx === activeIndex
-                      ? 'w-7 bg-rose-500 shadow-xs'
-                      : 'w-2 bg-slate-300 hover:bg-rose-300'
-                  }`}
-                />
-              ))}
-            </div>
-
-            <button
-              type="button"
-              aria-label="Foto berikutnya"
-              onClick={() => scroll(1)}
-              className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-xs transition hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"
-            >
-              <ChevronRight size={18} />
-            </button>
-          </div>
-        </div>
-      ) : (
-        <EmptyState label="Foto portofolio akan segera ditambahkan." />
-      )}
-    </section>
-  )
-}
-
 function PublicFooter({ store, onNavigate }: { store: SalonStore; onNavigate: (route: PublicRoute) => void }) {
   const links: { name: string; href: PublicRoute }[] = [
     { name: 'Beranda', href: '/' },
     { name: 'Katalog rias', href: '/paket' },
+    { name: 'Portfolio', href: '/portfolio' },
     { name: 'Sertifikat', href: '/sertifikat' },
   ]
   return <footer className="border-t border-slate-200 bg-slate-50 px-5 py-12 sm:px-8 lg:px-12">
@@ -2178,12 +2580,14 @@ function LoginPage({ store, onOwnerLogin }: { store: SalonStore; onOwnerLogin: (
   </main>
 }
 
-function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCategoryRemove, onSettingsSave, onLogout }: {
+function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCategoryRemove, onSettingsSave, onSavePortfolioConfig, onLogout }: {
   store: SalonStore; activeTab: AdminTab; setActiveTab: (tab: AdminTab) => void;
   onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category | Certificate | FaqItem) => void;
   onDelete: (collection: 'packages' | 'schedules' | 'gallery' | 'certificates' | 'faqs', id: string) => void;
   onCategoryRemove: (category: Category) => void;
-  onSettingsSave: (event: FormEvent<HTMLFormElement>) => void; onLogout: () => void;
+  onSettingsSave: (event: FormEvent<HTMLFormElement>) => void;
+  onSavePortfolioConfig: (source: 'fouita' | 'gallery', fouitaInput: string) => void;
+  onLogout: () => void;
 }) {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true)
@@ -2393,7 +2797,7 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
           {activeTab === 'Katalog' && <PackagesManager store={store} onOpen={onOpen} onDelete={onDelete} />}
           {activeTab === 'Kategori' && <CategoriesManager store={store} onOpen={onOpen} onRemove={onCategoryRemove} />}
           {activeTab === 'Jadwal' && <SchedulesManager store={store} onOpen={onOpen} onDelete={onDelete} />}
-          {activeTab === 'Portfolio' && <GalleryManager store={store} onOpen={onOpen} onDelete={onDelete} />}
+          {activeTab === 'Portfolio' && <GalleryManager store={store} onOpen={onOpen} onDelete={onDelete} onSavePortfolioConfig={onSavePortfolioConfig} />}
           {activeTab === 'Sertifikat' && <CertificatesManager store={store} onOpen={onOpen} onDelete={onDelete} />}
           {activeTab === 'FAQ' && <FaqManager store={store} onOpen={onOpen} onDelete={onDelete} />}
           {activeTab === 'Akun' && <SettingsManager store={store} onSave={onSettingsSave} />}
@@ -3630,9 +4034,30 @@ function ScheduleDetailsModal({ schedule, collisions, onClose, onEdit }: { sched
   </ModalFrame>
 }
 
-function GalleryManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void; onDelete: (collection: 'packages' | 'schedules' | 'gallery', id: string) => void }) {
+function GalleryManager({
+  store,
+  onOpen,
+  onDelete,
+  onSavePortfolioConfig,
+}: {
+  store: SalonStore
+  onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void
+  onDelete: (collection: 'packages' | 'schedules' | 'gallery', id: string) => void
+  onSavePortfolioConfig: (source: 'fouita' | 'gallery', fouitaInput: string) => void
+}) {
   const [search, setSearch] = useState('')
   const [currentPage, setCurrentPage] = useState(1)
+  const initialSource: 'fouita' | 'gallery' =
+    store.profile.portfolioSource === 'gallery' ? 'gallery' : 'fouita'
+  const [selectedSource, setSelectedSource] = useState<'fouita' | 'gallery'>(initialSource)
+  const [fouitaUrlInput, setFouitaUrlInput] = useState(
+    store.profile.portfolioFouitaUrl || DEFAULT_FOUITA_SCRIPT_URL
+  )
+
+  useEffect(() => {
+    setSelectedSource(store.profile.portfolioSource === 'gallery' ? 'gallery' : 'fouita')
+    setFouitaUrlInput(store.profile.portfolioFouitaUrl || DEFAULT_FOUITA_SCRIPT_URL)
+  }, [store.profile.portfolioSource, store.profile.portfolioFouitaUrl])
 
   // Otomatis reset ke halaman pertama saat ada foto portfolio baru ditambahkan
   const prevCountRef = useRef(store.gallery.length)
@@ -3662,7 +4087,140 @@ function GalleryManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen
   const validPage = Math.min(currentPage, totalPages)
   const paginated = filtered.slice((validPage - 1) * 6, validPage * 6)
 
+  const activeFouitaUrl = parseFouitaConfig(
+    store.profile.portfolioFouitaUrl || DEFAULT_FOUITA_SCRIPT_URL
+  ).url
+  const isFouitaActive = store.profile.portfolioSource !== 'gallery' && Boolean(activeFouitaUrl)
+  const autoFallbackTimeText = useMemo(() => {
+    const raw = store.profile.portfolioAutoFallbackAt
+    if (!raw) return ''
+    const parsedDate = new Date(raw)
+    if (Number.isNaN(parsedDate.getTime())) return ''
+    return parsedDate.toLocaleString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  }, [store.profile.portfolioAutoFallbackAt])
+
+  function handleSourceSwitch(nextSource: 'fouita' | 'gallery') {
+    setSelectedSource(nextSource)
+    if (nextSource === 'gallery') {
+      onSavePortfolioConfig('gallery', fouitaUrlInput)
+    } else if (parseFouitaConfig(fouitaUrlInput).url) {
+      onSavePortfolioConfig('fouita', fouitaUrlInput)
+    }
+  }
+
   return <>
+    {/* Pengaturan Switch Sumber Feed Halaman Portfolio Publik (Fouita <-> Foto Manual) */}
+    <div className="mb-6 rounded-2xl border border-rose-100 bg-rose-50/40 p-4 sm:p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h3 className="text-sm font-bold text-slate-900">Sumber Portfolio Publik</h3>
+          <p className="mt-0.5 text-xs text-slate-600 truncate">
+            Instagram:{' '}
+            <a
+              href={store.profile.instagramUrl || 'https://www.instagram.com/desyana_77/'}
+              target="_blank"
+              rel="noreferrer"
+              className="font-semibold text-rose-600 underline"
+            >
+              {store.profile.instagram || '@desyana_77'}
+            </a>
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-rose-200/70 bg-white px-3.5 py-2 shadow-2xs sm:justify-end">
+          <span
+            className={`inline-flex items-center gap-1.5 text-xs font-bold ${
+              isFouitaActive ? 'text-emerald-700' : 'text-rose-700'
+            }`}
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                isFouitaActive ? 'bg-emerald-500' : 'bg-rose-500'
+              }`}
+            />
+            {isFouitaActive ? 'Fouita IG (Otomatis)' : 'Foto Manual (Galeri)'}
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={isFouitaActive}
+            aria-label="Switch antara Fouita IG dan Foto Manual"
+            onClick={() => handleSourceSwitch(isFouitaActive ? 'gallery' : 'fouita')}
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-rose-300 ${
+              isFouitaActive ? 'bg-rose-500' : 'bg-slate-300'
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition duration-200 ${
+                isFouitaActive ? 'translate-x-5' : 'translate-x-0.5'
+              }`}
+            />
+          </button>
+        </div>
+      </div>
+
+      {!isFouitaActive && autoFallbackTimeText && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs text-amber-800">
+          <p>
+            <strong>Auto-switch aktif ({autoFallbackTimeText}):</strong> Fouita kosong/kuota 1.000 habis, dialihkan ke <strong>Foto Manual</strong>.
+          </p>
+          <button
+            type="button"
+            onClick={() => handleSourceSwitch('fouita')}
+            className="shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-amber-700 transition"
+          >
+            Aktifkan Fouita Lagi
+          </button>
+        </div>
+      )}
+
+      {selectedSource === 'fouita' ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            onSavePortfolioConfig('fouita', fouitaUrlInput)
+          }}
+          className="mt-3 space-y-2"
+        >
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              type="text"
+              required
+              value={fouitaUrlInput}
+              onChange={(e) => setFouitaUrlInput(e.target.value)}
+              placeholder="Tempel link Fouita (https://wdg.fouita.com/widgets/0x57ed64.js) atau kode embed-nya"
+              className="field flex-1 !py-2.5 text-xs sm:text-sm min-h-[42px] bg-white"
+            />
+            <button type="submit" className="btn-primary !px-4 !py-2.5 text-xs sm:text-sm min-h-[42px] shrink-0 justify-center">
+              <Check size={15} /> Simpan Widget
+            </button>
+          </div>
+          <p className="text-[11px] leading-relaxed text-slate-500">
+            Feed IG dari{' '}
+            <a
+              href="https://fouita.com"
+              target="_blank"
+              rel="noreferrer"
+              className="font-semibold text-rose-600 underline"
+            >
+              Fouita
+            </a>
+            . Jika kuota 1.000 habis/kosong, otomatis pindah ke <strong>Foto Manual</strong> (switch kembali secara manual saat kuota terisi).
+          </p>
+        </form>
+      ) : (
+        <p className="mt-3 text-[11px] leading-relaxed text-slate-600">
+          Portfolio publik sedang menampilkan <strong>Foto Manual</strong> di bawah (tanpa batas views). Geser switch di atas untuk kembali ke Fouita.
+        </p>
+      )}
+    </div>
+
     {/* Header & Toolbar: Searching di sebelah kiri tombol Tambah Foto (Semua 1 baris) */}
     <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="shrink-0">
@@ -4056,6 +4614,21 @@ function SettingsManager({ store, onSave }: { store: SalonStore; onSave: (event:
       <div>
         <label className="label" htmlFor="studio-instagram-url">Link Profil Instagram</label>
         <input id="studio-instagram-url" name="instagramUrl" defaultValue={store.profile.instagramUrl ?? 'https://www.instagram.com/desyana_77/'} className="field" placeholder="https://www.instagram.com/..." />
+        <p className="mt-1 text-[11px] text-slate-500">Digunakan pada footer dan tombol profil Instagram di menu Portfolio.</p>
+      </div>
+      <div className="md:col-span-2">
+        <label className="label" htmlFor="studio-portfolio-fouita-url">Link Widget Fouita Instagram (Menu Portfolio)</label>
+        <input
+          id="studio-portfolio-fouita-url"
+          name="portfolioFouitaUrl"
+          type="text"
+          defaultValue={store.profile.portfolioFouitaUrl ?? initialStore.profile.portfolioFouitaUrl ?? ''}
+          className="field"
+          placeholder="https://emb.fouita.com/widget/0x57ed64/ftj78d28e"
+        />
+        <p className="mt-1 text-[11px] text-slate-500">
+          Masukkan URL embed / script widget Fouita atau tempel kode embed-nya untuk menampilkan feed Instagram di halaman Portfolio. Kosongkan jika ingin memakai Galeri Studio.
+        </p>
       </div>
       <div>
         <label className="label" htmlFor="studio-tiktok">Akun TikTok</label>
