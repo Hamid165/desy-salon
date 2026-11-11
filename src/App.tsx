@@ -1013,8 +1013,8 @@ function PackageCard({ item, onBook }: { item: Package; onBook: () => void }) {
         {/* Daftar Fitur dengan Min-Height agar Card Tetap Seragam saat Fitur Sedikit */}
         <div className="flex-1 min-h-[112px]">
           <ul className="space-y-2.5">
-            {item.features.slice(0, 4).map((feature) => (
-              <li key={feature} className="flex items-start gap-2 text-sm font-medium text-slate-700">
+            {item.features.slice(0, 4).map((feature, index) => (
+              <li key={`${item.id}-feature-${index}`} className="flex items-start gap-2 text-sm font-medium text-slate-700">
                 <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
                   <Check size={12} strokeWidth={3} />
                 </span>
@@ -2590,9 +2590,9 @@ function SearchableSelect({
           </div>
           <div className="max-h-56 overflow-y-auto p-1 space-y-0.5">
             {filteredOptions.length > 0 ? (
-              filteredOptions.map((option) => (
+              filteredOptions.map((option, idx) => (
                 <button
-                  key={option}
+                  key={`${option}-${idx}`}
                   type="button"
                   onClick={() => handleSelect(option)}
                   className={`flex w-full items-center justify-between rounded-lg px-3.5 py-3 text-sm sm:text-base transition ${
@@ -2863,15 +2863,15 @@ function CategoriesManager({ store, onOpen, onRemove }: {
         <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">Atur jenis kategori bisnis</p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap w-full sm:w-auto">
+      <div className="flex flex-nowrap items-center gap-2 w-full sm:w-auto">
         {/* Searching */}
-        <div className="relative w-full sm:w-64">
+        <div className="relative flex-1 min-w-0 sm:flex-initial sm:w-64">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             value={search}
             onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
             placeholder="Cari kategori..."
-            className="field !py-2.5 !pl-9 !pr-7 text-sm min-h-[42px]"
+            className="field !py-2.5 !pl-9 !pr-7 text-xs sm:text-sm min-h-[42px]"
           />
           {search && (
             <button
@@ -2887,7 +2887,7 @@ function CategoriesManager({ store, onOpen, onRemove }: {
         {/* Tombol Tambah Kategori */}
         <button
           onClick={() => onOpen('category')}
-          className="btn-primary !px-4 !py-2.5 text-sm min-h-[42px] shrink-0 whitespace-nowrap w-full sm:w-auto justify-center"
+          className="btn-primary !px-3.5 sm:!px-4 !py-2.5 text-xs sm:text-sm min-h-[42px] shrink-0 whitespace-nowrap justify-center"
         >
           <Plus size={16} />Tambah kategori
         </button>
@@ -3669,9 +3669,9 @@ function GalleryManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen
         <h2 className="text-lg font-bold text-slate-900">Kelola Foto Portfolio</h2>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+      <div className="flex flex-nowrap items-center gap-2 w-full sm:w-auto">
         {/* Searching */}
-        <div className="relative w-full sm:w-64">
+        <div className="relative flex-1 min-w-0 sm:flex-initial sm:w-64">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             value={search}
@@ -3693,7 +3693,7 @@ function GalleryManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen
         {/* Tombol Tambah Foto */}
         <button
           onClick={() => onOpen('gallery')}
-          className="btn-primary !px-4 !py-2.5 text-xs sm:text-sm min-h-[42px] shrink-0 whitespace-nowrap"
+          className="btn-primary !px-3.5 sm:!px-4 !py-2.5 text-xs sm:text-sm min-h-[42px] shrink-0 whitespace-nowrap"
         >
           <Plus size={16} />Tambah foto
         </button>
@@ -3777,7 +3777,7 @@ function CertificatesManager({
         <button
           type="button"
           onClick={() => onOpen('certificate')}
-          className="btn-primary !px-4 !py-2.5 text-xs sm:text-sm self-start sm:self-auto"
+          className="btn-primary !px-4 !py-2.5 text-xs sm:text-sm w-full justify-center sm:w-auto shrink-0"
         >
           <Plus size={16} /> Tambah Sertifikat
         </button>
