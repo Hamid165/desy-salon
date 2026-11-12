@@ -5,6 +5,8 @@ import {
   Music2, PackageCheck, Plus, Search, Sparkles, Trash2, TrendingUp, User, X,
 } from 'lucide-react'
 import brandLogo from './assets/logo-desyana-v2.png'
+import fotoRiasImg from './assets/foto-rias.jpeg'
+import salonImg from './assets/salon.jpeg'
 import { initialStore } from './data'
 import { api } from './services/api'
 import type { Category, Certificate, FaqItem, GalleryItem, Package, SalonStore, Schedule } from './types'
@@ -1607,9 +1609,9 @@ function WeddingServicesSection({
             <div className="group relative overflow-hidden rounded-3xl border border-rose-100/90 bg-white p-2.5 shadow-xl shadow-rose-950/5 transition-all duration-500 hover:border-rose-200 hover:shadow-2xl">
               <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-rose-50">
                 <img
-                  src="https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=1200&q=85"
+                  src={fotoRiasImg}
                   alt="Proses Tata Rias Pengantin Desy Salon"
-                  className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+                  className="h-full w-full object-cover object-[50%_22%] transition-transform duration-700 ease-out group-hover:scale-105"
                   loading="lazy"
                 />
               </div>
@@ -1642,9 +1644,9 @@ function WeddingServicesSection({
             <div className="order-1 group relative overflow-hidden rounded-3xl border border-rose-100/90 bg-white p-2.5 shadow-xl shadow-rose-950/5 transition-all duration-500 hover:border-rose-200 hover:shadow-2xl lg:order-2">
               <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-rose-50">
                 <img
-                  src="https://images.unsplash.com/photo-1605497788044-5a32c7078486?auto=format&fit=crop&w=1200&q=85"
-                  alt="Potong Rambut dan Perawatan Salon Desy Salon"
-                  className="h-full w-full object-cover transition-transform duration-700 ease-out group-hover:scale-105"
+                  src={salonImg}
+                  alt="Perawatan dan Ruang Salon Desy Salon"
+                  className="h-full w-full object-cover object-[50%_45%] transition-transform duration-700 ease-out group-hover:scale-105"
                   loading="lazy"
                 />
               </div>
