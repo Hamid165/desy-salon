@@ -1,14 +1,53 @@
 import type { Category, Certificate, FaqItem, GalleryItem, Package, SalonProfile, Schedule } from '../types'
 import { initialStore } from '../data'
 
-const API_BASE = ((import.meta as any).env?.VITE_API_URL || '').replace(/\/$/, '') + '/api'
-const SUPABASE_URL = (
-  (import.meta as any).env?.VITE_SUPABASE_URL || 'https://bbifbiumfgtncjcqaons.supabase.co'
-).replace(/\/$/, '')
-const SUPABASE_ANON_KEY =
-  (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ||
+const DEFAULT_SUPABASE_URL = 'https://bbifbiumfgtncjcqaons.supabase.co'
+const DEFAULT_SUPABASE_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJiaWZiaXVtZmd0bmNqY3Fhb25zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTM1NzY5MjksImV4cCI6MjEwOTE1MjkyOX0.UMugK4NfbutefiADOL2WrpmBw84wx22K15ucftsRk0M'
+
+function sanitizeSupabaseUrl(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULT_SUPABASE_URL
+  const cleaned = raw.trim().replace(/^[("'[\s<]+|[)"'\]\s>/]+$/g, '')
+  return /^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(cleaned) ? cleaned : DEFAULT_SUPABASE_URL
+}
+
+function sanitizeSupabaseKey(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULT_SUPABASE_ANON_KEY
+  const cleaned = raw.trim().replace(/^["'\s]+|["'\s]+$/g, '')
+  return /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(cleaned)
+    ? cleaned
+    : DEFAULT_SUPABASE_ANON_KEY
+}
+
+const RAW_API_URL = ((import.meta as any).env?.VITE_API_URL || '').trim().replace(/\/$/, '')
+const API_BASE = `${RAW_API_URL}/api`
+const SUPABASE_URL = sanitizeSupabaseUrl((import.meta as any).env?.VITE_SUPABASE_URL)
+const SUPABASE_ANON_KEY = sanitizeSupabaseKey((import.meta as any).env?.VITE_SUPABASE_ANON_KEY)
 const TOKEN_KEY = 'desy_salon_admin_jwt'
+
+let localhostBackendAvailable: boolean | null = null
+let localhostCheckAt = 0
+
+async function isBackendAvailable(): Promise<boolean> {
+  if (RAW_API_URL) return true
+  if (typeof window === 'undefined') return true
+  const host = window.location.hostname
+  if (host !== 'localhost' && host !== '127.0.0.1') {
+    return false
+  }
+  const now = Date.now()
+  if (localhostBackendAvailable === true) return true
+  if (localhostBackendAvailable === false && now - localhostCheckAt < 10000) return false
+  try {
+    const res = await fetch(`${API_BASE}/health`)
+    const ct = res.headers.get('content-type') || ''
+    localhostBackendAvailable = res.ok && ct.includes('application/json')
+  } catch {
+    localhostBackendAvailable = false
+  }
+  localhostCheckAt = Date.now()
+  return localhostBackendAvailable
+}
 
 export function getAuthToken(): string | null {
   return localStorage.getItem(TOKEN_KEY)
@@ -57,6 +96,12 @@ async function sbRest<T>(
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  if (!(await isBackendAvailable())) {
+    const err = new Error('BACKEND_UNAVAILABLE')
+    ;(err as any).isBackendUnavailable = true
+    throw err
+  }
+
   const token = getAuthToken()
   const headers = new Headers(options.headers || {})
 
@@ -567,7 +612,8 @@ export const api = {
           body: formData,
         })
       } catch {
-        const ext = file.name.split('.').pop() || 'jpg'
+        const rawExt = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '')
+        const ext = rawExt || 'jpg'
         const filePath = `gallery/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`
         const res = await fetch(`${SUPABASE_URL}/storage/v1/object/salon-assets/${filePath}`, {
           method: 'POST',
@@ -579,7 +625,16 @@ export const api = {
           },
           body: file,
         })
-        if (!res.ok) throw new Error('Upload gagal')
+        if (!res.ok) {
+          let errMsg = `Upload Storage gagal (HTTP ${res.status})`
+          try {
+            const errJson = await res.json()
+            errMsg = errJson.message || errJson.error || errMsg
+          } catch {
+            // ignore
+          }
+          throw new Error(errMsg)
+        }
         return {
           url: `${SUPABASE_URL}/storage/v1/object/public/salon-assets/${filePath}`,
           path: filePath,

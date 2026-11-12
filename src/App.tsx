@@ -592,6 +592,12 @@ function App() {
     setEditor({ kind, item })
   }
 
+  function notifyBackendError(label: string, err: unknown) {
+    console.warn(`Gagal ${label} ke backend:`, err)
+    const detail = err instanceof Error ? err.message : 'Periksa koneksi internet.'
+    setNotice(`Gagal menyimpan ${label} ke Supabase (${detail}).`)
+  }
+
   function saveEntity(event: FormEvent<HTMLFormElement>, kind: EditorKind, item?: Package | Schedule | GalleryItem | Category | Certificate | FaqItem) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
@@ -611,8 +617,8 @@ function App() {
         features: value('features').split('\n').map((feature) => feature.trim()).filter(Boolean),
       }
       setStore((current) => ({ ...current, packages: item ? current.packages.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.packages] }))
-      if (item) api.packages.update(id, entity).catch((e) => console.warn('Gagal update paket ke backend:', e))
-      else api.packages.create(entity).catch((e) => console.warn('Gagal simpan paket ke backend:', e))
+      if (item) api.packages.update(id, entity).catch((e) => notifyBackendError('update paket', e))
+      else api.packages.create(entity).catch((e) => notifyBackendError('paket baru', e))
     }
     if (kind === 'schedule') {
       const eventTime = value('eventTime') || undefined
@@ -631,8 +637,8 @@ function App() {
       }
       scheduleCollision = store.schedules.find((entry) => entry.id !== id && hasScheduleCollision(entry, entity))
       setStore((current) => ({ ...current, schedules: item ? current.schedules.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.schedules] }))
-      if (item) api.schedules.update(id, entity).catch((e) => console.warn('Gagal update jadwal ke backend:', e))
-      else api.schedules.create(entity, true).catch((e) => console.warn('Gagal simpan jadwal ke backend:', e))
+      if (item) api.schedules.update(id, entity).catch((e) => notifyBackendError('update jadwal', e))
+      else api.schedules.create(entity, true).catch((e) => notifyBackendError('jadwal baru', e))
     }
     if (kind === 'gallery') {
       const category = value('category') || store.categories[0]?.name || 'Tata Rias'
@@ -646,8 +652,8 @@ function App() {
         description: value('description'),
       }
       setStore((current) => ({ ...current, gallery: item ? current.gallery.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.gallery] }))
-      if (item) api.gallery.update(id, entity).catch((e) => console.warn('Gagal update galeri ke backend:', e))
-      else api.gallery.create(entity).catch((e) => console.warn('Gagal simpan galeri ke backend:', e))
+      if (item) api.gallery.update(id, entity).catch((e) => notifyBackendError('update galeri', e))
+      else api.gallery.create(entity).catch((e) => notifyBackendError('foto galeri', e))
     }
     if (kind === 'certificate') {
       const image = value('image') || value('imageUrl')
@@ -663,8 +669,8 @@ function App() {
           ? current.certificates.map((entry) => (entry.id === id ? entity : entry))
           : [entity, ...current.certificates],
       }))
-      if (item) api.certificates.update(id, entity).catch((e) => console.warn('Gagal update sertifikat ke backend:', e))
-      else api.certificates.create(entity).catch((e) => console.warn('Gagal simpan sertifikat ke backend:', e))
+      if (item) api.certificates.update(id, entity).catch((e) => notifyBackendError('update sertifikat', e))
+      else api.certificates.create(entity).catch((e) => notifyBackendError('sertifikat baru', e))
       setNotice(item ? 'Sertifikat berhasil diperbarui.' : 'Sertifikat baru berhasil ditambahkan.')
     }
     if (kind === 'faq') {
@@ -679,8 +685,8 @@ function App() {
           ? current.faqs.map((entry) => (entry.id === id ? entity : entry))
           : [entity, ...current.faqs],
       }))
-      if (item) api.faqs.update(id, entity).catch((e) => console.warn('Gagal update FAQ ke backend:', e))
-      else api.faqs.create(entity).catch((e) => console.warn('Gagal simpan FAQ ke backend:', e))
+      if (item) api.faqs.update(id, entity).catch((e) => notifyBackendError('update FAQ', e))
+      else api.faqs.create(entity).catch((e) => notifyBackendError('FAQ baru', e))
       setNotice(item ? 'FAQ berhasil diperbarui.' : 'FAQ baru berhasil ditambahkan.')
     }
     if (kind === 'category') {
@@ -694,8 +700,8 @@ function App() {
         ...current,
         categories: item ? current.categories.map((c) => c.id === id ? entity : c) : [entity, ...current.categories],
       }))
-      if (item) api.categories.update(id, entity).catch((e) => console.warn('Gagal update kategori ke backend:', e))
-      else api.categories.create(entity).catch((e) => console.warn('Gagal simpan kategori ke backend:', e))
+      if (item) api.categories.update(id, entity).catch((e) => notifyBackendError('update kategori', e))
+      else api.categories.create(entity).catch((e) => notifyBackendError('kategori baru', e))
       setNotice(item ? 'Kategori berhasil diperbarui.' : 'Kategori baru berhasil ditambahkan.')
     }
 
@@ -713,11 +719,11 @@ function App() {
       message: `Yakin ingin menghapus ${labels[collection]} "${name}"?`,
       onConfirm: () => {
         setStore((current) => ({ ...current, [collection]: (current[collection] as any[]).filter((entry) => entry.id !== id) }))
-        if (collection === 'packages') api.packages.delete(id).catch((e) => console.warn('Gagal hapus paket di backend:', e))
-        if (collection === 'schedules') api.schedules.delete(id).catch((e) => console.warn('Gagal hapus jadwal di backend:', e))
-        if (collection === 'gallery') api.gallery.delete(id).catch((e) => console.warn('Gagal hapus galeri di backend:', e))
-        if (collection === 'certificates') api.certificates.delete(id).catch((e) => console.warn('Gagal hapus sertifikat di backend:', e))
-        if (collection === 'faqs') api.faqs.delete(id).catch((e) => console.warn('Gagal hapus FAQ di backend:', e))
+        if (collection === 'packages') api.packages.delete(id).catch((e) => notifyBackendError('hapus paket', e))
+        if (collection === 'schedules') api.schedules.delete(id).catch((e) => notifyBackendError('hapus jadwal', e))
+        if (collection === 'gallery') api.gallery.delete(id).catch((e) => notifyBackendError('hapus galeri', e))
+        if (collection === 'certificates') api.certificates.delete(id).catch((e) => notifyBackendError('hapus sertifikat', e))
+        if (collection === 'faqs') api.faqs.delete(id).catch((e) => notifyBackendError('hapus FAQ', e))
         setNotice('Data berhasil dihapus.')
       },
     })
@@ -770,10 +776,12 @@ function App() {
 
     // Sinkronkan ke backend jika tersedia
     api.profile.update(newProfile).catch((err) => {
-      console.debug('Gagal update profile ke backend:', err)
+      notifyBackendError('profil salon', err)
     })
     api.auth.updateCredentials(username, password).catch((err) => {
-      console.debug('Gagal update kredensial admin ke backend:', err)
+      if (!(err as any)?.isBackendUnavailable) {
+        console.debug('Gagal update kredensial admin ke backend:', err)
+      }
     })
 
     setNotice('Pengaturan akun berhasil diperbarui.')
@@ -801,7 +809,7 @@ function App() {
 
     // Sinkronkan ke backend database Supabase
     api.profile.updatePortfolio(source, finalUrl).catch((err) => {
-      console.debug('Gagal sinkron portfolio ke backend:', err)
+      notifyBackendError('pengaturan portfolio', err)
     })
 
     setNotice(
@@ -838,7 +846,7 @@ function App() {
       message: `Yakin ingin menghapus kategori "${category.name}"?`,
       onConfirm: () => {
         setStore((current) => ({ ...current, categories: current.categories.filter((entry) => entry.id !== category.id) }))
-        api.categories.delete(category.id).catch((e) => console.warn('Gagal hapus kategori di backend:', e))
+        api.categories.delete(category.id).catch((e) => notifyBackendError('hapus kategori', e))
         setNotice('Kategori berhasil dihapus.')
       },
     })
@@ -900,7 +908,7 @@ function App() {
     }
     setStore((current) => ({ ...current, schedules: [booking, ...current.schedules] }))
     api.schedules.create(booking).catch((err) => {
-      console.warn('Gagal simpan booking ke backend:', err)
+      notifyBackendError('booking baru', err)
     })
     const message = [
       `Halo Admin ${store.profile.name}, saya ingin melakukan reservasi dan konfirmasi jadwal layanan.`,
