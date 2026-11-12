@@ -53,6 +53,9 @@ export interface SalonProfile {
   facebook_url?: string | null
   instagram?: string | null
   instagram_url?: string | null
+  portfolio_source?: 'fouita' | 'gallery' | null
+  portfolio_fouita_url?: string | null
+  portfolio_auto_fallback_at?: string | null
   tiktok?: string | null
   tiktok_url?: string | null
   updated_at?: string

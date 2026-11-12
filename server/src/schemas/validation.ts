@@ -59,8 +59,17 @@ export const profileSchema = z.object({
   facebook_url: z.string().optional().nullable(),
   instagram: z.string().optional().nullable(),
   instagram_url: z.string().optional().nullable(),
+  portfolio_source: z.enum(['fouita', 'gallery']).optional().nullable().default('fouita'),
+  portfolio_fouita_url: z.string().optional().nullable(),
+  portfolio_auto_fallback_at: z.string().optional().nullable(),
   tiktok: z.string().optional().nullable(),
   tiktok_url: z.string().optional().nullable(),
+})
+
+export const portfolioConfigSchema = z.object({
+  portfolio_source: z.enum(['fouita', 'gallery']),
+  portfolio_fouita_url: z.string().optional().nullable(),
+  portfolio_auto_fallback_at: z.string().optional().nullable(),
 })
 
 export const certificateSchema = z.object({

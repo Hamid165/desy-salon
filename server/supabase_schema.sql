@@ -70,6 +70,9 @@ CREATE TABLE IF NOT EXISTS public.salon_profile (
     facebook_url TEXT,
     instagram TEXT,
     instagram_url TEXT,
+    portfolio_source TEXT DEFAULT 'fouita' CHECK (portfolio_source IN ('fouita', 'gallery')),
+    portfolio_fouita_url TEXT,
+    portfolio_auto_fallback_at TIMESTAMPTZ,
     tiktok TEXT,
     tiktok_url TEXT,
     updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
@@ -216,19 +219,21 @@ INSERT INTO public.gallery (id, title, event_type, tag, image_url, description) 
 ON CONFLICT (id) DO NOTHING;
 
 -- Profil Salon
-INSERT INTO public.salon_profile (id, name, tag, phone, address, maps_url, opening_hours, facebook, facebook_url, instagram, instagram_url, tiktok, tiktok_url) VALUES
+INSERT INTO public.salon_profile (id, name, tag, phone, address, maps_url, opening_hours, facebook, facebook_url, instagram, instagram_url, portfolio_source, portfolio_fouita_url, tiktok, tiktok_url) VALUES
 (
     'default',
     'Desy Salon',
     'Beauty for your beautiful beginning',
     '+62 821-3522-1177',
-    'Jl. Desa Pekuncen No.15, RT 02/RW 03, Pekuncen, Kec. Jatilawang, Kabupaten Banyumas, Jawa Tengah 53174',
+    'DESA PEKUNCEN, KEC. JATILAWANG, KAB. BANYUMAS',
     'https://maps.app.goo.gl/1mqYn88NWe9zq8AV9',
     'Senin–Minggu, 08.00–17.00 WIB',
     'Desyana',
-    'https://www.facebook.com/desyana',
+    'https://www.facebook.com/desyana.desyana12',
     '@desyana_77',
     'https://www.instagram.com/desyana_77/',
+    'fouita',
+    'https://wdg.fouita.com/widgets/0x57ed64.js',
     '@desyana.s',
     'https://www.tiktok.com/@desyana.s'
 )

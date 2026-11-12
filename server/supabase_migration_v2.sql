@@ -208,4 +208,27 @@ UPDATE public.packages SET original_price = NULL, badge = NULL;
 ALTER TABLE public.packages DROP COLUMN IF EXISTS original_price;
 ALTER TABLE public.packages DROP COLUMN IF EXISTS badge;
 
+-- 9. TAMBAH KOLOM KONFIGURASI PORTFOLIO (FOUITA & GALERI) PADA SALON_PROFILE
+ALTER TABLE public.salon_profile 
+    ADD COLUMN IF NOT EXISTS portfolio_source TEXT DEFAULT 'fouita';
+
+ALTER TABLE public.salon_profile DROP CONSTRAINT IF EXISTS salon_profile_portfolio_source_check;
+ALTER TABLE public.salon_profile 
+    ADD CONSTRAINT salon_profile_portfolio_source_check CHECK (portfolio_source IN ('fouita', 'gallery'));
+
+ALTER TABLE public.salon_profile 
+    ADD COLUMN IF NOT EXISTS portfolio_fouita_url TEXT DEFAULT 'https://wdg.fouita.com/widgets/0x57ed64.js';
+
+ALTER TABLE public.salon_profile 
+    ADD COLUMN IF NOT EXISTS portfolio_auto_fallback_at TIMESTAMPTZ;
+
+-- Sinkronkan data default profil yang ada
+UPDATE public.salon_profile
+SET 
+    portfolio_source = COALESCE(portfolio_source, 'fouita'),
+    portfolio_fouita_url = COALESCE(portfolio_fouita_url, 'https://wdg.fouita.com/widgets/0x57ed64.js'),
+    address = 'DESA PEKUNCEN, KEC. JATILAWANG, KAB. BANYUMAS'
+WHERE id = 'default';
+
+
 

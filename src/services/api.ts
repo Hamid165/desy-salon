@@ -158,6 +158,9 @@ function toFrontendProfile(b: any): SalonProfile {
     facebookUrl: b.facebook_url || undefined,
     instagram: b.instagram || undefined,
     instagramUrl: b.instagram_url || undefined,
+    portfolioSource: b.portfolio_source || 'fouita',
+    portfolioFouitaUrl: b.portfolio_fouita_url || undefined,
+    portfolioAutoFallbackAt: b.portfolio_auto_fallback_at || undefined,
     tiktok: b.tiktok || undefined,
     tiktokUrl: b.tiktok_url || undefined,
   }
@@ -175,6 +178,9 @@ function toBackendProfile(f: Partial<SalonProfile>): any {
     facebook_url: f.facebookUrl || null,
     instagram: f.instagram || null,
     instagram_url: f.instagramUrl || null,
+    portfolio_source: f.portfolioSource || 'fouita',
+    portfolio_fouita_url: f.portfolioFouitaUrl || null,
+    portfolio_auto_fallback_at: f.portfolioAutoFallbackAt || null,
     tiktok: f.tiktok || null,
     tiktok_url: f.tiktokUrl || null,
   }
@@ -391,6 +397,17 @@ export const api = {
       const res = await request<any>('/profile', {
         method: 'PUT',
         body: JSON.stringify(payload),
+      })
+      return toFrontendProfile(res)
+    },
+    async updatePortfolio(source: 'fouita' | 'gallery', fouitaUrl?: string, autoFallbackAt?: string): Promise<SalonProfile> {
+      const res = await request<any>('/profile/portfolio', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          portfolio_source: source,
+          portfolio_fouita_url: fouitaUrl || null,
+          portfolio_auto_fallback_at: autoFallbackAt || null,
+        }),
       })
       return toFrontendProfile(res)
     },

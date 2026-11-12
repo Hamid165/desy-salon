@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import brandLogo from './assets/logo-desyana-v2.png'
 import { initialStore } from './data'
+import { api } from './services/api'
 import type { Category, Certificate, FaqItem, GalleryItem, Package, SalonStore, Schedule } from './types'
 
 const STORE_KEY = 'desy-salon-store-v1'
@@ -333,8 +334,12 @@ function hasScheduleCollision(first: Schedule, second: Schedule) {
   if (first.eventDate !== second.eventDate) return false
   if (first.session === 'Full Day' || second.session === 'Full Day') return true
   if (first.eventTime && second.eventTime) {
-    if (first.eventTime.split(':')[0] === second.eventTime.split(':')[0]) return true
-    return first.eventTime === second.eventTime
+    const [h1, m1] = first.eventTime.split(':').map(Number)
+    const [h2, m2] = second.eventTime.split(':').map(Number)
+    const min1 = (h1 || 0) * 60 + (m1 || 0)
+    const min2 = (h2 || 0) * 60 + (m2 || 0)
+    // Jeda 2 jam (120 menit): bentrok jika selisih waktu < 120 menit
+    return Math.abs(min1 - min2) < 120
   }
   return first.session === second.session
 }
@@ -346,12 +351,18 @@ function findScheduleCollision(
 ): Schedule | undefined {
   const candidateSession = candidate.session || (candidate.eventTime ? sessionForTime(candidate.eventTime) : 'Full Day')
   return schedules.find((s) => {
+    // Jadwal 'Menunggu Konfirmasi' belum mengunci slot, jadi tidak dianggap bentrok untuk booking baru
+    if (s.status === 'Menunggu Konfirmasi') return false
     if (excludeId && s.id === excludeId) return false
     if (s.eventDate !== candidate.eventDate) return false
     if (s.session === 'Full Day' || candidateSession === 'Full Day') return true
     if (s.eventTime && candidate.eventTime) {
-      if (s.eventTime.split(':')[0] === candidate.eventTime.split(':')[0]) return true
-      return s.eventTime === candidate.eventTime
+      const [ch, cm] = candidate.eventTime.split(':').map(Number)
+      const [sh, sm] = s.eventTime.split(':').map(Number)
+      const cMinutes = (ch || 0) * 60 + (cm || 0)
+      const sMinutes = (sh || 0) * 60 + (sm || 0)
+      // Jeda 2 jam (120 menit): bentrok jika selisih waktu < 120 menit
+      return Math.abs(cMinutes - sMinutes) < 120
     }
     return s.session === candidateSession
   })
@@ -364,18 +375,27 @@ function isHourUnavailable(
   excludeId?: string
 ): boolean {
   if (!date) return false
-  const schedulesOnDate = schedules.filter((s) => s.eventDate === date && (!excludeId || s.id !== excludeId))
+  // Hanya jadwal yang SUDAH DP atau Lunas (status !== 'Menunggu Konfirmasi') yang mengunci jam
+  const schedulesOnDate = schedules.filter(
+    (s) => s.status !== 'Menunggu Konfirmasi' && s.eventDate === date && (!excludeId || s.id !== excludeId)
+  )
   if (schedulesOnDate.length === 0) return false
 
   // Jika ada booking Full Day di tanggal tersebut
   if (schedulesOnDate.some((s) => s.session === 'Full Day')) return true
 
-  const session = sessionForTime(`${hour}:00`)
+  const hourNum = Number(hour)
+  const candidateMinutes = hourNum * 60
 
   return schedulesOnDate.some((s) => {
-    if (s.eventTime && s.eventTime.split(':')[0] === hour) return true
-    if (!s.eventTime && s.session === session) return true
-    return false
+    if (s.eventTime) {
+      const [sh, sm] = s.eventTime.split(':').map(Number)
+      const sMinutes = (sh || 0) * 60 + (sm || 0)
+      // Jeda 2 jam (120 menit): jam ini tidak tersedia jika selisih waktu < 120 menit
+      return Math.abs(candidateMinutes - sMinutes) < 120
+    }
+    const session = sessionForTime(`${hour}:00`)
+    return !s.eventTime && s.session === session
   })
 }
 
@@ -477,6 +497,31 @@ function App() {
   useEffect(() => {
     setCurrentPage(1)
   }, [selectedCategory, search])
+
+  // Sinkronkan data profile (termasuk status portfolio Fouita/Gallery) dari backend jika tersedia
+  useEffect(() => {
+    let isMounted = true
+    api.profile
+      .get()
+      .then((remote) => {
+        if (!isMounted || !remote) return
+        setStore((current) => ({
+          ...current,
+          profile: {
+            ...current.profile,
+            ...remote,
+            portfolioSource: remote.portfolioSource || current.profile.portfolioSource || 'fouita',
+            portfolioFouitaUrl: remote.portfolioFouitaUrl || current.profile.portfolioFouitaUrl || DEFAULT_FOUITA_SCRIPT_URL,
+          },
+        }))
+      })
+      .catch(() => {
+        // Fallback aman ke localStorage jika backend sedang offline/tanpa jaringan
+      })
+    return () => {
+      isMounted = false
+    }
+  }, [])
 
   function navigatePublic(route: PublicRoute) {
     const target = route === '404' ? '/' : route
@@ -652,27 +697,35 @@ function App() {
     if (rawFouitaInput && !portfolioFouitaUrl) {
       return setNotice('Link widget Fouita harus diawali https:// atau http://.')
     }
+    const newProfile = {
+      ...store.profile,
+      phone,
+      address: String(form.get('address') ?? '').trim(),
+      mapsUrl,
+      openingHours: String(form.get('openingHours') ?? '').trim(),
+      facebook,
+      facebookUrl,
+      instagram,
+      instagramUrl,
+      portfolioFouitaUrl,
+      portfolioSource: (portfolioFouitaUrl ? 'fouita' : 'gallery') as 'fouita' | 'gallery',
+      portfolioAutoFallbackAt: undefined,
+      tiktok,
+      tiktokUrl,
+    }
+
     setStore((current) => ({
       ...current,
-      profile: {
-        ...current.profile,
-        phone,
-        address: String(form.get('address') ?? '').trim(),
-        mapsUrl,
-        openingHours: String(form.get('openingHours') ?? '').trim(),
-        facebook,
-        facebookUrl,
-        instagram,
-        instagramUrl,
-        portfolioFouitaUrl,
-        portfolioSource: portfolioFouitaUrl ? 'fouita' : 'gallery',
-        portfolioAutoFallbackAt: undefined,
-        tiktok,
-        tiktokUrl,
-      },
+      profile: newProfile,
       credentials: { username, password },
     }))
     clearFouitaHealthCache()
+
+    // Sinkronkan ke backend jika tersedia
+    api.profile.update(newProfile).catch((err) => {
+      console.debug('Gagal update profile ke backend:', err)
+    })
+
     setNotice('Pengaturan akun berhasil diperbarui.')
   }
 
@@ -685,15 +738,22 @@ function App() {
     if (source === 'fouita') {
       clearFouitaHealthCache()
     }
+    const finalUrl = parsed.url || store.profile.portfolioFouitaUrl || DEFAULT_FOUITA_SCRIPT_URL
     setStore((current) => ({
       ...current,
       profile: {
         ...current.profile,
         portfolioSource: source,
-        portfolioFouitaUrl: parsed.url || current.profile.portfolioFouitaUrl || DEFAULT_FOUITA_SCRIPT_URL,
+        portfolioFouitaUrl: finalUrl,
         portfolioAutoFallbackAt: undefined,
       },
     }))
+
+    // Sinkronkan ke backend database Supabase
+    api.profile.updatePortfolio(source, finalUrl).catch((err) => {
+      console.debug('Gagal sinkron portfolio ke backend:', err)
+    })
+
     setNotice(
       source === 'fouita'
         ? 'Sumber Portfolio publik diatur ke Fouita Instagram Widget (Otomatis).'
@@ -703,6 +763,7 @@ function App() {
 
   function handleAutoFallbackGallery() {
     clearFouitaHealthCache()
+    const nowIso = new Date().toISOString()
     setStore((current) => {
       if (current.profile.portfolioSource === 'gallery') return current
       return {
@@ -710,9 +771,14 @@ function App() {
         profile: {
           ...current.profile,
           portfolioSource: 'gallery',
-          portfolioAutoFallbackAt: new Date().toISOString(),
+          portfolioAutoFallbackAt: nowIso,
         },
       }
+    })
+
+    // Sinkronkan auto fallback ke backend database
+    api.profile.updatePortfolio('gallery', store.profile.portfolioFouitaUrl, nowIso).catch((err) => {
+      console.debug('Gagal update auto-fallback ke backend:', err)
     })
   }
 
@@ -762,10 +828,10 @@ function App() {
       return
     }
 
-    // Validasi tabrakan jadwal
+    // Validasi tabrakan jadwal (dengan jeda 2 jam)
     const collision = findScheduleCollision({ eventDate: date, eventTime: time }, store.schedules)
     if (collision) {
-      setNotice(`Jadwal tanggal ${formatDate(date)} pukul ${time} WIB sudah terisi. Silakan pilih waktu lain.`)
+      setNotice(`Jadwal tanggal ${formatDate(date)} pukul ${time} WIB berdekatan dengan jadwal lain (butuh jeda minimal 2 jam). Silakan pilih jam lain.`)
       return
     }
 
@@ -2147,12 +2213,19 @@ function TimePickerPanel({
   const checkSlotBooked = (h: string, m: string) => {
     if (!date) return false
     const timeStr = `${h}:${m}`
+    const candidateMinutes = Number(h) * 60 + Number(m || '0')
     const candidateSession = sessionForTime(timeStr)
     return schedules.some((s) => {
+      // Jadwal 'Menunggu Konfirmasi' belum sah mengunci slot waktu
+      if (s.status === 'Menunggu Konfirmasi') return false
       if (excludeId && s.id === excludeId) return false
       if (s.eventDate !== date) return false
       if (s.session === 'Full Day') return true
-      if (s.eventTime) return s.eventTime.split(':')[0] === h
+      if (s.eventTime) {
+        const [sh, sm] = s.eventTime.split(':').map(Number)
+        const sMinutes = (sh || 0) * 60 + (sm || 0)
+        return Math.abs(candidateMinutes - sMinutes) < 120
+      }
       return s.session === candidateSession
     })
   }
@@ -2325,9 +2398,9 @@ function BookingModal({
       return false
     }
 
-    // Cek apakah jam yang dipilih sudah ada booking
+    // Cek apakah jam yang dipilih sudah ada booking (atau berada dalam jeda 2 jam dari booking lain)
     if (isHourUnavailable(hStr, selectedDate, schedules)) {
-      setTimeError(`Pukul ${selectedTime} WIB ada booking. Silakan pilih jam lain.`)
+      setTimeError(`Pukul ${selectedTime} WIB tidak tersedia (ada booking / jeda layanan 2 jam). Silakan pilih jam lain.`)
       return false
     }
 
@@ -2355,7 +2428,7 @@ function BookingModal({
 
 
   const isFullDayBooked = useMemo(() => {
-    return schedules.some((s) => s.eventDate === date && s.session === 'Full Day')
+    return schedules.some((s) => s.status !== 'Menunggu Konfirmasi' && s.eventDate === date && s.session === 'Full Day')
   }, [date, schedules])
 
   function handleFormSubmit(e: FormEvent<HTMLFormElement>) {
@@ -2517,7 +2590,7 @@ function BookingModal({
               <p className="text-rose-700 text-xs sm:text-sm">
                 {isFullDayBooked
                   ? `Tanggal ${formatDate(date)} sudah terisi pesanan seharian penuh (Full Day). Silakan pilih tanggal lain.`
-                  : `Tanggal ${formatDate(date)} pukul ${time} WIB sudah terisi untuk ${collidingSchedule.packageName}. Silakan pilih waktu atau tanggal alternatif agar tidak bentrok.`}
+                  : `Tanggal ${formatDate(date)} pukul ${time} WIB berdekatan dengan jadwal ${collidingSchedule.packageName} (${collidingSchedule.eventTime || collidingSchedule.session} WIB). Layanan salon/rias membutuhkan jeda minimal 2 jam. Silakan pilih waktu alternatif.`}
               </p>
             </div>
           </div>
@@ -4801,7 +4874,7 @@ function EntityModal({ editor, store, onClose, onSave }: {
           <div>
             <p className="font-bold text-amber-950">Peringatan Jadwal Bentrok</p>
             <p>
-              Tanggal {formatDate(scheduleDate)} {scheduleTime ? `pukul ${scheduleTime} WIB` : ''} bertabrakan dengan pesanan <strong>{adminCollision.clientName}</strong> ({adminCollision.packageName} - {adminCollision.session}).
+              Tanggal {formatDate(scheduleDate)} {scheduleTime ? `pukul ${scheduleTime} WIB` : ''} berdekatan dengan pesanan <strong>{adminCollision.clientName}</strong> ({adminCollision.packageName} pukul {adminCollision.eventTime || adminCollision.session} WIB). Layanan membutuhkan jeda minimal 2 jam.
             </p>
           </div>
         </div>
