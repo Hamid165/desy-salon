@@ -2937,7 +2937,7 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
         )}
 
         {/* Konten Menu Yang Bersangkutan (Hanya tampil 1 menu yang aktif) */}
-        <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+        <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
           {activeTab === 'Katalog' && <PackagesManager store={store} onOpen={onOpen} onDelete={onDelete} />}
           {activeTab === 'Kategori' && <CategoriesManager store={store} onOpen={onOpen} onRemove={onCategoryRemove} />}
           {activeTab === 'Jadwal' && <SchedulesManager store={store} onOpen={onOpen} onDelete={onDelete} />}
@@ -3051,6 +3051,7 @@ function SearchableSelect({
 }) {
   const [isOpen, setIsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [openUpwards, setOpenUpwards] = useState(false)
   const [internalSelected, setInternalSelected] = useState(() => defaultValue || (options.length > 0 ? options[0] : ''))
   const containerRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -3062,6 +3063,16 @@ function SearchableSelect({
       setInternalSelected(defaultValue)
     }
   }, [defaultValue, value])
+
+  useEffect(() => {
+    if (isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect()
+      const spaceBelow = window.innerHeight - rect.bottom
+      const spaceAbove = rect.top
+      // Buka ke atas jika ruang di bawah kurang dari 260px dan ruang di atas lebih luas
+      setOpenUpwards(spaceBelow < 260 && spaceAbove > spaceBelow)
+    }
+  }, [isOpen])
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -3097,7 +3108,7 @@ function SearchableSelect({
   }
 
   return (
-    <div className={`relative ${className}`} ref={containerRef}>
+    <div className={`relative ${isOpen ? 'z-40' : ''} ${className}`} ref={containerRef}>
       {label && (
         <label className="label" htmlFor={name ? `searchable-btn-${name}` : undefined}>
           {label}
@@ -3122,7 +3133,11 @@ function SearchableSelect({
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 w-full max-h-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl ring-1 ring-black/5">
+        <div
+          className={`absolute left-0 right-0 z-50 w-full min-w-[200px] max-h-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl ring-1 ring-black/5 ${
+            openUpwards ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+          }`}
+        >
           <div className="border-b border-slate-100 p-2">
             <div className="relative">
               <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
