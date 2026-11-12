@@ -4895,9 +4895,6 @@ function EntityModal({ editor, store, onClose, onSave }: {
       {imageField('image', 'Foto paket')}
       {textarea('Deskripsi', 'description', packageItem?.description, 'Ceritakan keunggulan paket...')}
       {textarea('Layanan (satu layanan per baris)', 'features', packageItem?.features.join('\n'), 'Makeup premium\nHairdo')}
-      <p className="sm:col-span-2 -mt-2 rounded-xl border border-rose-100 bg-rose-50/60 p-3 text-[11px] text-slate-600">
-        💡 <strong>Ketentuan Harga:</strong> Untuk kategori <strong>Salon</strong> cukup isi <em>Harga mulai / tetap</em> (akan tampil harga tetap). Untuk <strong>Tata Rias</strong>, isi juga <em>Harga batas atas</em> agar tampil sebagai rentang harga (misal: <em>Rp 1.850.000 – Rp 2.500.000</em>).
-      </p>
     </>}
     {kind === 'schedule' && <>
       {input('Nama klien *', 'clientName', scheduleItem?.clientName || '', { required: true, placeholder: 'Nama lengkap' })}
