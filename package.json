@@ -4,9 +4,10 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev:all": "concurrently -n \"FRONTEND,BACKEND\" -c \"cyan.bold,magenta.bold\" \"npm run dev\" \"npm run dev:server\"",
-    "dev": "vite",
+    "dev": "concurrently -n \"FRONTEND,BACKEND\" -c \"cyan.bold,magenta.bold\" \"npm run dev:client\" \"npm run dev:server\"",
+    "dev:client": "vite",
     "dev:server": "npm --prefix server run dev",
+    "dev:all": "npm run dev",
     "build": "tsc -b && vite build",
     "build:server": "npm --prefix server run build",
     "preview": "vite preview"

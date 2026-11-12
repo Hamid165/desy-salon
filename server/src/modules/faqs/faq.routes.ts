@@ -22,7 +22,13 @@ faqRouter.get('/', async (req, res, next) => {
     }
 
     const { data, error } = await query
-    if (error) throw error
+    if (error) {
+      if (error.code === 'PGRST205') {
+        res.json([])
+        return
+      }
+      throw error
+    }
     res.json(data as FaqItem[])
   } catch (err) {
     next(err)

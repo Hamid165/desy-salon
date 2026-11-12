@@ -42,11 +42,22 @@ profileRouter.put('/', requireAdmin, async (req, res, next) => {
   try {
     const validated = profileSchema.parse(req.body)
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('salon_profile')
       .upsert({ ...validated, id: 'default', updated_at: new Date().toISOString() })
       .select()
       .single()
+
+    if (error && error.message?.includes('column')) {
+      const { maps_url, portfolio_source, portfolio_fouita_url, portfolio_auto_fallback_at, ...legacyPayload } = validated
+      const retry = await supabase
+        .from('salon_profile')
+        .upsert({ ...legacyPayload, id: 'default', updated_at: new Date().toISOString() })
+        .select()
+        .single()
+      data = retry.data ? { ...retry.data, maps_url, portfolio_source, portfolio_fouita_url, portfolio_auto_fallback_at } : retry.data
+      error = retry.error
+    }
 
     if (error) throw error
     res.json(data)
@@ -77,6 +88,15 @@ profileRouter.patch('/portfolio', async (req, res, next) => {
       .eq('id', 'default')
       .select()
       .single()
+
+    if (error && error.message?.includes('column')) {
+      const { data: current } = await supabase.from('salon_profile').select('*').eq('id', 'default').single()
+      res.json({
+        ...(current || {}),
+        ...updatePayload,
+      })
+      return
+    }
 
     if (error) throw error
     res.json(data)

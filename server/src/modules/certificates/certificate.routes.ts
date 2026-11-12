@@ -14,7 +14,13 @@ certificateRouter.get('/', async (req, res, next) => {
       .select('*')
       .order('created_at', { ascending: true })
 
-    if (error) throw error
+    if (error) {
+      if (error.code === 'PGRST205') {
+        res.json([])
+        return
+      }
+      throw error
+    }
     res.json(data as Certificate[])
   } catch (err) {
     next(err)

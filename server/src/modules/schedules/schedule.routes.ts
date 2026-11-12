@@ -6,11 +6,26 @@ import type { Schedule } from '../../types/database.js'
 
 export const scheduleRouter = Router()
 
+function toLegacyStatus(status: string): string {
+  if (status === 'Menunggu Konfirmasi') return 'Menunggu DP'
+  if (status === 'DP' || status === 'Lunas') return 'Terkonfirmasi'
+  return status
+}
+
+function normalizeScheduleRow(row: any): Schedule {
+  if (!row) return row
+  let status = row.status
+  if (status === 'Menunggu DP') status = 'Menunggu Konfirmasi'
+  else if (status === 'Terkonfirmasi') status = 'DP'
+  return { ...row, status }
+}
+
 // Helper: Cek bentrok jadwal (dengan aturan jeda minimal 2 jam / 120 menit)
 function checkCollision(incoming: { event_date: string; event_time?: string | null; session: string }, existing: Schedule) {
   // Hanya jadwal yang SUDAH DP atau LUNAS (mengunci slot) yang dianggap bentrok.
   // Jadwal yang masih 'Menunggu Konfirmasi' belum sah mengunci slot sehingga tidak dianggap bentrok.
-  if (existing.status === 'Menunggu Konfirmasi') return false
+  const normStatus = normalizeScheduleRow(existing).status
+  if (normStatus === 'Menunggu Konfirmasi') return false
   if (incoming.event_date !== existing.event_date) return false
   if (incoming.session === 'Full Day' || existing.session === 'Full Day') return true
   if (incoming.event_time && existing.event_time) {
@@ -41,7 +56,7 @@ scheduleRouter.get('/', async (req, res, next) => {
 
     const { data, error } = await query
     if (error) throw error
-    res.json(data as Schedule[])
+    res.json(((data as any[]) || []).map(normalizeScheduleRow))
   } catch (err) {
     next(err)
   }
@@ -230,14 +245,24 @@ scheduleRouter.post('/', async (req, res, next) => {
       return
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('schedules')
       .insert([{ ...validated, id }])
       .select()
       .single()
 
+    if (error && error.message?.includes('schedules_status_check')) {
+      const retry = await supabase
+        .from('schedules')
+        .insert([{ ...validated, id, status: toLegacyStatus(validated.status) }])
+        .select()
+        .single()
+      data = retry.data ? { ...retry.data, status: validated.status } : retry.data
+      error = retry.error
+    }
+
     if (error) throw error
-    res.status(201).json(data)
+    res.status(201).json(normalizeScheduleRow(data))
   } catch (err) {
     next(err)
   }
@@ -249,15 +274,26 @@ scheduleRouter.patch('/:id/status', requireAdmin, async (req, res, next) => {
     const { id } = req.params
     const { status } = scheduleStatusSchema.parse(req.body)
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('schedules')
       .update({ status })
       .eq('id', id)
       .select()
       .single()
 
+    if (error && error.message?.includes('schedules_status_check')) {
+      const retry = await supabase
+        .from('schedules')
+        .update({ status: toLegacyStatus(status) })
+        .eq('id', id)
+        .select()
+        .single()
+      data = retry.data ? { ...retry.data, status } : retry.data
+      error = retry.error
+    }
+
     if (error) throw error
-    res.json(data)
+    res.json(normalizeScheduleRow(data))
   } catch (err) {
     next(err)
   }
@@ -294,15 +330,26 @@ scheduleRouter.put('/:id', requireAdmin, async (req, res, next) => {
       return
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('schedules')
       .update(validated)
       .eq('id', id)
       .select()
       .single()
 
+    if (error && error.message?.includes('schedules_status_check')) {
+      const retry = await supabase
+        .from('schedules')
+        .update({ ...validated, status: toLegacyStatus(validated.status) })
+        .eq('id', id)
+        .select()
+        .single()
+      data = retry.data ? { ...retry.data, status: validated.status } : retry.data
+      error = retry.error
+    }
+
     if (error) throw error
-    res.json(data)
+    res.json(normalizeScheduleRow(data))
   } catch (err) {
     next(err)
   }

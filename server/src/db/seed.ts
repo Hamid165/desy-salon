@@ -9,6 +9,7 @@ async function seed() {
     { id: 'tata-rias', name: 'Tata Rias', slug: 'tata-rias' },
   ]
   const { error: catErr } = await supabase.from('categories').upsert(categories)
+  await supabase.from('categories').delete().neq('id', 'salon').neq('id', 'tata-rias')
   if (catErr) console.warn('Gagal seed categories:', catErr.message)
   else console.log('✅ Categories berhasil di-seed.')
 
@@ -75,7 +76,15 @@ async function seed() {
       features: ['Rias akad & resepsi', '2 set busana pengantin', 'Rias keluarga 4 orang', 'Tim standby seharian'],
     },
   ]
-  const { error: pkgErr } = await supabase.from('packages').upsert(packages)
+  let { error: pkgErr } = await supabase.from('packages').upsert(packages)
+  if (pkgErr && pkgErr.message?.includes('price_max')) {
+    const legacyPackages = packages.map(({ price_max, ...rest }) => ({
+      ...rest,
+      original_price: price_max,
+    }))
+    const retry = await supabase.from('packages').upsert(legacyPackages)
+    pkgErr = retry.error
+  }
   if (pkgErr) console.warn('Gagal seed packages:', pkgErr.message)
   else console.log('✅ Packages berhasil di-seed.')
 
@@ -85,7 +94,15 @@ async function seed() {
     { id: 'jadwal-2', client_name: 'Aulia Rahma', package_name: 'Paes Ageng Jawa', event_date: '2026-11-14', event_time: '10:00', session: 'Pagi', location: 'Pendopo Taman Sari', notes: 'Konsultasi busana hari Jumat.', status: 'Menunggu Konfirmasi' },
     { id: 'jadwal-3', client_name: 'Sinta Maharani', package_name: 'Modern Grace', event_date: '2026-11-21', event_time: '13:00', session: 'Siang', location: 'Hotel Aruna', notes: '', status: 'DP' },
   ]
-  const { error: schErr } = await supabase.from('schedules').upsert(schedules)
+  let { error: schErr } = await supabase.from('schedules').upsert(schedules)
+  if (schErr && schErr.message?.includes('schedules_status_check')) {
+    const legacySchedules = schedules.map((s) => ({
+      ...s,
+      status: s.status === 'Menunggu Konfirmasi' ? 'Menunggu DP' : s.status === 'DP' ? 'Terkonfirmasi' : s.status,
+    }))
+    const retry = await supabase.from('schedules').upsert(legacySchedules)
+    schErr = retry.error
+  }
   if (schErr) console.warn('Gagal seed schedules:', schErr.message)
   else console.log('✅ Schedules berhasil di-seed.')
 
@@ -120,7 +137,12 @@ async function seed() {
     tiktok: '@desyana.s',
     tiktok_url: 'https://www.tiktok.com/@desyana.s',
   }
-  const { error: profErr } = await supabase.from('salon_profile').upsert(profile)
+  let { error: profErr } = await supabase.from('salon_profile').upsert(profile)
+  if (profErr && profErr.message?.includes('column')) {
+    const { maps_url, portfolio_source, portfolio_fouita_url, ...legacyProfile } = profile
+    const retry = await supabase.from('salon_profile').upsert(legacyProfile)
+    profErr = retry.error
+  }
   if (profErr) console.warn('Gagal seed profile:', profErr.message)
   else console.log('✅ Profile berhasil di-seed.')
 

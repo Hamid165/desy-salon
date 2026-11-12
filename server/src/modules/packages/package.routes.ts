@@ -55,11 +55,22 @@ packageRouter.post('/', requireAdmin, async (req, res, next) => {
     const validated = packageSchema.parse(req.body)
     const id = validated.id || `paket-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('packages')
       .insert([{ ...validated, id }])
       .select()
       .single()
+
+    if (error && error.message?.includes('price_max')) {
+      const { price_max, ...rest } = validated
+      const retry = await supabase
+        .from('packages')
+        .insert([{ ...rest, id, original_price: price_max ?? null }])
+        .select()
+        .single()
+      data = retry.data ? { ...retry.data, price_max: price_max ?? null } : retry.data
+      error = retry.error
+    }
 
     if (error) throw error
     res.status(201).json(data)
@@ -74,12 +85,24 @@ packageRouter.put('/:id', requireAdmin, async (req, res, next) => {
     const { id } = req.params
     const validated = packageSchema.parse({ ...req.body, id })
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('packages')
       .update(validated)
       .eq('id', id)
       .select()
       .single()
+
+    if (error && error.message?.includes('price_max')) {
+      const { price_max, ...rest } = validated
+      const retry = await supabase
+        .from('packages')
+        .update({ ...rest, original_price: price_max ?? null })
+        .eq('id', id)
+        .select()
+        .single()
+      data = retry.data ? { ...retry.data, price_max: price_max ?? null } : retry.data
+      error = retry.error
+    }
 
     if (error) throw error
     res.json(data)
