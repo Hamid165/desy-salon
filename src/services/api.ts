@@ -1,5 +1,6 @@
 import type { Category, Certificate, FaqItem, GalleryItem, Package, SalonProfile, Schedule } from '../types'
 import { initialStore } from '../data'
+import { createClient } from '@supabase/supabase-js'
 
 const DEFAULT_SUPABASE_URL = 'https://bbifbiumfgtncjcqaons.supabase.co'
 const DEFAULT_SUPABASE_ANON_KEY =
@@ -24,6 +25,14 @@ const API_BASE = `${RAW_API_URL}/api`
 const SUPABASE_URL = sanitizeSupabaseUrl((import.meta as any).env?.VITE_SUPABASE_URL)
 const SUPABASE_ANON_KEY = sanitizeSupabaseKey((import.meta as any).env?.VITE_SUPABASE_ANON_KEY)
 const TOKEN_KEY = 'desy_salon_admin_jwt'
+
+export const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  realtime: {
+    params: {
+      eventsPerSecond: 10,
+    },
+  },
+})
 
 let localhostBackendAvailable: boolean | null = null
 let localhostCheckAt = 0
@@ -902,6 +911,67 @@ export const api = {
           service: 'Supabase Direct REST Client',
           database: 'Connected (Supabase Direct)',
         }
+      }
+    },
+  },
+
+  realtime: {
+    subscribe(callbacks: {
+      onSchedulesChange?: () => void
+      onPackagesChange?: () => void
+      onCategoriesChange?: () => void
+      onFaqsChange?: () => void
+      onGalleryChange?: () => void
+      onProfileChange?: () => void
+      onCertificatesChange?: () => void
+    }) {
+      const channel = supabaseClient
+        .channel('desy-salon-realtime-channel')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'schedules' },
+          () => callbacks.onSchedulesChange?.()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'packages' },
+          () => callbacks.onPackagesChange?.()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'categories' },
+          () => callbacks.onCategoriesChange?.()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'faqs' },
+          () => callbacks.onFaqsChange?.()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'gallery' },
+          () => callbacks.onGalleryChange?.()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'salon_profile' },
+          () => callbacks.onProfileChange?.()
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'certificates' },
+          () => callbacks.onCertificatesChange?.()
+        )
+        .subscribe((status, err) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('⚡ Supabase Realtime connected successfully!')
+          } else if (err) {
+            console.warn('Supabase Realtime notice:', err.message)
+          }
+        })
+
+      return () => {
+        supabaseClient.removeChannel(channel)
       }
     },
   },

@@ -592,6 +592,71 @@ function App() {
     }
   }, [])
 
+  // Realtime Live Sync via Supabase Realtime Channels (Instant update tanpa reload)
+  useEffect(() => {
+    let active = true
+
+    const unsubscribe = api.realtime.subscribe({
+      onSchedulesChange: async () => {
+        if (!active) return
+        const schedules = await api.schedules.list().catch(() => null)
+        if (schedules && active) {
+          setStore((current) => ({ ...current, schedules }))
+        }
+      },
+      onPackagesChange: async () => {
+        if (!active) return
+        const packages = await api.packages.list().catch(() => null)
+        if (packages && active) {
+          setStore((current) => ({ ...current, packages }))
+        }
+      },
+      onCategoriesChange: async () => {
+        if (!active) return
+        const categories = await api.categories.list().catch(() => null)
+        if (categories && active) {
+          setStore((current) => ({ ...current, categories }))
+        }
+      },
+      onFaqsChange: async () => {
+        if (!active) return
+        const faqs = await api.faqs.list().catch(() => null)
+        if (faqs && active) {
+          setStore((current) => ({ ...current, faqs }))
+        }
+      },
+      onGalleryChange: async () => {
+        if (!active) return
+        const gallery = await api.gallery.list().catch(() => null)
+        if (gallery && active) {
+          setStore((current) => ({ ...current, gallery }))
+        }
+      },
+      onCertificatesChange: async () => {
+        if (!active) return
+        const certificates = await api.certificates.list().catch(() => null)
+        if (certificates && active) {
+          setStore((current) => ({ ...current, certificates }))
+        }
+      },
+      onProfileChange: async () => {
+        if (!active) return
+        const remoteProfile = await api.profile.get().catch(() => null)
+        if (remoteProfile && active) {
+          setStore((current) => ({
+            ...current,
+            profile: { ...current.profile, ...remoteProfile },
+          }))
+        }
+      },
+    })
+
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [])
+
   function navigatePublic(route: PublicRoute) {
     const target = route === '404' ? '/' : route
     if (window.location.pathname !== target) window.history.pushState({}, '', target)
