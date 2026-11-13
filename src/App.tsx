@@ -160,7 +160,11 @@ function getBookingPrice(schedule: Schedule, packages: Package[]): number {
 }
 
 function whatsappLink(phone: string) {
-  return `https://wa.me/${phone.replace(/\D/g, '')}`
+  let cleaned = (phone || '').replace(/\D/g, '')
+  if (cleaned.startsWith('0')) {
+    cleaned = '62' + cleaned.slice(1)
+  }
+  return `https://wa.me/${cleaned}`
 }
 
 function whatsappConsultationLink(phone: string, salonName = 'Desy Salon') {
@@ -1114,6 +1118,10 @@ function App() {
       onSettingsSave={saveSettings}
       onSavePortfolioConfig={savePortfolioConfig}
       onLogout={confirmLogout}
+      onBackHome={() => {
+        setPage('public')
+        navigatePublic('/')
+      }}
     />
     {editor && <EntityModal editor={editor} store={store} onClose={() => setEditor(null)} onSave={saveEntity} />}
     {confirmation && <ConfirmationModal message={confirmation.message} onCancel={() => setConfirmation(null)} onConfirm={() => { const confirm = confirmation.onConfirm; setConfirmation(null); confirm() }} />}
@@ -2855,7 +2863,14 @@ function LoginPage({ store, onOwnerLogin, onBackHome }: { store: SalonStore; onO
 
   return <main className="flex min-h-screen items-center justify-center bg-rose-50/50 px-5 py-10">
     <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-lg sm:p-9">
-      <img src={brandLogo} alt={store.profile.name} className="mb-8 h-12 w-auto max-w-[220px] object-contain object-left" />
+      <button
+        type="button"
+        onClick={onBackHome || (() => { if (typeof window !== 'undefined') window.location.href = '/' })}
+        className="mb-8 block text-left cursor-pointer focus:outline-none"
+        aria-label="Kembali ke Beranda"
+      >
+        <img src={brandLogo} alt={store.profile.name} className="h-12 w-auto max-w-[220px] object-contain object-left transition hover:opacity-80" />
+      </button>
       <h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">Login Admin</h1>
       <form onSubmit={submit} className="mt-7 space-y-5">
         <div><label className="label" htmlFor="auth-username">Username</label><input required autoComplete="username" id="auth-username" value={username} onChange={(event) => setUsername(event.target.value)} className="field py-3" placeholder="Masukkan username admin" /></div>
@@ -2874,7 +2889,7 @@ function LoginPage({ store, onOwnerLogin, onBackHome }: { store: SalonStore; onO
   </main>
 }
 
-function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onReorderPackages, onCategoryRemove, onSettingsSave, onSavePortfolioConfig, onLogout }: {
+function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onReorderPackages, onCategoryRemove, onSettingsSave, onSavePortfolioConfig, onLogout, onBackHome }: {
   store: SalonStore; activeTab: AdminTab; setActiveTab: (tab: AdminTab) => void;
   onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category | Certificate | FaqItem) => void;
   onDelete: (collection: 'packages' | 'schedules' | 'gallery' | 'certificates' | 'faqs', id: string) => void;
@@ -2883,6 +2898,7 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onRe
   onSettingsSave: (event: FormEvent<HTMLFormElement>) => void;
   onSavePortfolioConfig: (source: 'fouita' | 'gallery', fouitaInput: string) => void;
   onLogout: () => void;
+  onBackHome?: () => void;
 }) {
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true)
@@ -2917,7 +2933,16 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onRe
     {/* Sidebar Mobile Drawer (Merespon klik garis tiga pada mobile/tablet) */}
     <aside className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-slate-200 bg-white shadow-2xl transition-transform duration-300 lg:hidden ${mobileDrawerOpen ? 'translate-x-0' : '-translate-x-full'}`}>
       <div className="flex h-[80px] items-center justify-between border-b border-slate-100 px-6">
-        <a href="/" className="flex items-center"><img src={brandLogo} alt="Desy Salon" className="h-11 sm:h-12 w-auto max-w-[200px] object-contain" /></a>
+        <a
+          href="/"
+          onClick={(event) => {
+            event.preventDefault()
+            onBackHome ? onBackHome() : (window.location.href = '/')
+          }}
+          className="flex items-center"
+        >
+          <img src={brandLogo} alt="Desy Salon" className="h-11 sm:h-12 w-auto max-w-[200px] object-contain transition hover:opacity-80" />
+        </a>
         <button
           type="button"
           aria-label="Tutup menu"
@@ -2967,8 +2992,15 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onRe
     {/* Sidebar Desktop (Bisa disembunyikan/dimunculkan dengan toggle garis tiga) */}
     {desktopSidebarOpen && (
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-slate-200 bg-white lg:flex">
-        <a href="/" className="flex h-[80px] items-center border-b border-slate-100 px-6">
-          <img src={brandLogo} alt="Desy Salon" className="h-12 sm:h-13 w-auto max-w-[220px] object-contain" />
+        <a
+          href="/"
+          onClick={(event) => {
+            event.preventDefault()
+            onBackHome ? onBackHome() : (window.location.href = '/')
+          }}
+          className="flex h-[80px] items-center border-b border-slate-100 px-6"
+        >
+          <img src={brandLogo} alt="Desy Salon" className="h-12 sm:h-13 w-auto max-w-[220px] object-contain transition hover:opacity-80" />
         </a>
         <nav className="flex-1 space-y-1.5 px-3 py-5">
           {tabs.map(({ name, icon: Icon }) => (
