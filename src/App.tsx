@@ -661,6 +661,7 @@ function App() {
     const target = route === '404' ? '/' : route
     if (window.location.pathname !== target) window.history.pushState({}, '', target)
     setPublicRoute(route)
+    setPage('public')
     setMenuOpen(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -1095,7 +1096,10 @@ function App() {
   if (page === 'login') return <LoginPage
     store={store}
     onOwnerLogin={loginOwner}
-    onBackHome={() => navigatePublic('/')}
+    onBackHome={() => {
+      setPage('public')
+      navigatePublic('/')
+    }}
   />
 
   if (page === 'admin') return <>
