@@ -1056,7 +1056,7 @@ function App() {
               onChange={(val) => setSelectedCategory(val === 'Semua Kategori' ? 'Semua' : val)}
               placeholder="Filter Kategori"
               searchPlaceholder="Cari kategori..."
-              className="w-[148px] sm:w-48 shrink-0"
+              className="w-40 sm:w-48 shrink-0"
               buttonClassName="h-[42px] min-h-[42px] px-3 sm:px-3.5 py-2.5 text-xs sm:text-sm font-semibold rounded-xl border border-slate-200 bg-white hover:border-rose-200 hover:bg-slate-50 text-slate-700 shadow-2xs"
             />
           </div>
@@ -3134,20 +3134,20 @@ function SearchableSelect({
 
       {isOpen && (
         <div
-          className={`absolute left-0 right-0 z-50 w-full min-w-[200px] max-h-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl ring-1 ring-black/5 ${
+          className={`absolute left-0 right-0 z-50 w-full max-h-72 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl ring-1 ring-black/5 ${
             openUpwards ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
           }`}
         >
           <div className="border-b border-slate-100 p-2">
             <div className="relative">
-              <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 ref={searchInputRef}
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={searchPlaceholder}
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-8 pr-3 text-sm text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:bg-white focus:outline-none"
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 py-1.5 pl-7 pr-2.5 text-xs text-slate-800 placeholder-slate-400 focus:border-rose-400 focus:bg-white focus:outline-none"
               />
             </div>
           </div>
@@ -3262,7 +3262,7 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
             }}
             placeholder="Filter Kategori"
             searchPlaceholder="Cari kategori..."
-            className="w-full sm:w-52 shrink-0"
+            className="w-full sm:w-48 shrink-0"
             buttonClassName="h-[42px] min-h-[42px] px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-200 bg-white hover:border-rose-200 hover:bg-slate-50 text-slate-700 shadow-2xs"
           />
 
@@ -3719,7 +3719,7 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
               }}
               placeholder="Pilih Tahun"
               searchPlaceholder="Cari tahun..."
-              className="w-full sm:w-44 shrink-0"
+              className="w-full sm:w-48 shrink-0"
               buttonClassName="h-[42px] min-h-[42px] px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-200 bg-white hover:border-rose-200 hover:bg-slate-50 text-slate-700 shadow-2xs"
             />
           </div>
@@ -3926,7 +3926,7 @@ function SchedulesManager({ store, onOpen, onDelete }: { store: SalonStore; onOp
                 }}
                 placeholder="Pilih Tahun"
                 searchPlaceholder="Cari tahun..."
-                className="w-full lg:w-44 shrink-0"
+                className="w-full lg:w-48 shrink-0"
                 buttonClassName="h-[42px] min-h-[42px] px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-200 bg-white hover:border-rose-200 hover:bg-slate-50 text-slate-700 shadow-2xs"
               />
             </div>
