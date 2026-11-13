@@ -7,6 +7,7 @@ export interface Package {
   image: string
   description: string
   features: string[]
+  createdAt?: string
 }
 
 export interface Category {

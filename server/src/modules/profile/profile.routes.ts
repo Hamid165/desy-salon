@@ -66,8 +66,8 @@ profileRouter.put('/', requireAdmin, async (req, res, next) => {
   }
 })
 
-// PATCH /api/profile/portfolio - Update pengaturan portfolio (Fouita vs Galeri Manual)
-profileRouter.patch('/portfolio', async (req, res, next) => {
+// PATCH /api/profile/portfolio - Update pengaturan portfolio (Fouita vs Galeri Manual) (Admin)
+profileRouter.patch('/portfolio', requireAdmin, async (req, res, next) => {
   try {
     const validated = portfolioConfigSchema.parse(req.body)
 

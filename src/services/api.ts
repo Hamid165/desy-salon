@@ -163,11 +163,12 @@ function toFrontendPackage(b: any): Package {
     image: b.image,
     description: b.description,
     features: Array.isArray(b.features) ? b.features : [],
+    createdAt: b.created_at,
   }
 }
 
 function toBackendPackage(f: Partial<Package>): any {
-  return {
+  const result: any = {
     id: f.id,
     name: f.name,
     category: f.category,
@@ -177,6 +178,10 @@ function toBackendPackage(f: Partial<Package>): any {
     description: f.description,
     features: f.features || [],
   }
+  if (f.createdAt) {
+    result.created_at = f.createdAt
+  }
+  return result
 }
 
 function toFrontendSchedule(b: any): Schedule {
@@ -466,6 +471,27 @@ export const api = {
           return toFrontendPackage(rows[0] || payload)
         }
       }
+    },
+    async reorder(packages: Package[]): Promise<void> {
+      const now = Date.now()
+      // Urutkan created_at secara menurun (item urutan pertama mendapatkan timestamp paling baru)
+      const updates = packages.map((pkg, index) => {
+        const newCreatedAt = new Date(now - index * 60000).toISOString()
+        return {
+          id: pkg.id,
+          createdAt: newCreatedAt,
+        }
+      })
+
+      // Update sekaligus ke Supabase / API
+      await Promise.all(
+        updates.map(({ id, createdAt }) =>
+          sbRest(`packages?id=eq.${encodeURIComponent(id)}`, {
+            method: 'PATCH',
+            body: { created_at: createdAt },
+          }).catch((err) => console.warn(`Gagal simpan urutan paket ${id}:`, err))
+        )
+      )
     },
     async delete(id: string): Promise<{ message: string; id: string }> {
       try {

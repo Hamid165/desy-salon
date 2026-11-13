@@ -1,5 +1,7 @@
 import { Router } from 'express'
+import jwt from 'jsonwebtoken'
 import { supabase } from '../../config/supabase.js'
+import { env } from '../../config/env.js'
 import { scheduleSchema, scheduleStatusSchema } from '../../schemas/validation.js'
 import { requireAdmin } from '../../middleware/auth.js'
 import type { Schedule } from '../../types/database.js'
@@ -179,10 +181,27 @@ scheduleRouter.post('/', async (req, res, next) => {
     const validated = scheduleSchema.parse(req.body)
     const id = validated.id || `jadwal-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
 
+    // Verifikasi otorisasi admin untuk mencegah bypass aturan pemesanan & manipulasi status
+    let isAdmin = false
+    const authHeader = req.headers.authorization
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.split(' ')[1]
+        jwt.verify(token, env.JWT_SECRET)
+        isAdmin = true
+      } catch {
+        isAdmin = false
+      }
+    }
+
+    const allowForce = isAdmin && Boolean(req.body.force)
+    // Non-admin bookings SELALU dimulai dengan status 'Menunggu Konfirmasi'
+    const finalStatus = isAdmin ? validated.status : 'Menunggu Konfirmasi'
+
     // Aturan 1: Minimal H-1 (tanggal acara minimal besok)
     const nowWib = new Date(Date.now() + 7 * 60 * 60 * 1000)
     const todayWibStr = nowWib.toISOString().slice(0, 10)
-    if (!req.body.force && validated.event_date <= todayWibStr) {
+    if (!allowForce && validated.event_date <= todayWibStr) {
       res.status(422).json({
         status: 422,
         error: 'Pemesanan ditolak: Reservasi harus dilakukan minimal H-1 (tanggal acara minimal besok).',
@@ -191,7 +210,7 @@ scheduleRouter.post('/', async (req, res, next) => {
     }
 
     // Aturan 2: Waktu acara wajib dalam jam kerja operasional (08:00 – 16:00 WIB)
-    if (!req.body.force) {
+    if (!allowForce) {
       if (!validated.event_time) {
         res.status(422).json({
           status: 422,
@@ -213,7 +232,7 @@ scheduleRouter.post('/', async (req, res, next) => {
     }
 
     // Aturan 3: Lokasi acara wajib diisi untuk booking klien
-    if (!req.body.force && (!validated.location || validated.location.trim() === '')) {
+    if (!allowForce && (!validated.location || validated.location.trim() === '')) {
       res.status(422).json({
         status: 422,
         error: 'Pemesanan ditolak: Lokasi acara wajib diisi.',
@@ -231,7 +250,7 @@ scheduleRouter.post('/', async (req, res, next) => {
 
     const colliding = (existingSchedules as Schedule[]).find((s) => checkCollision(validated, s))
 
-    if (colliding && !req.body.force) {
+    if (colliding && !allowForce) {
       res.status(409).json({
         status: 409,
         error: `Jadwal tidak tersedia: Jam ${validated.event_time ? validated.event_time + ' WIB ' : ''}pada tanggal ${validated.event_date} bentrok dengan booking yang sudah ada (${colliding.client_name} - ${colliding.package_name} pukul ${colliding.event_time || colliding.session} WIB). Layanan salon/rias membutuhkan jeda minimal 2 jam. Silakan pilih jam lain.`,
@@ -247,17 +266,17 @@ scheduleRouter.post('/', async (req, res, next) => {
 
     let { data, error } = await supabase
       .from('schedules')
-      .insert([{ ...validated, id }])
+      .insert([{ ...validated, id, status: finalStatus }])
       .select()
       .single()
 
     if (error && error.message?.includes('schedules_status_check')) {
       const retry = await supabase
         .from('schedules')
-        .insert([{ ...validated, id, status: toLegacyStatus(validated.status) }])
+        .insert([{ ...validated, id, status: toLegacyStatus(finalStatus) }])
         .select()
         .single()
-      data = retry.data ? { ...retry.data, status: validated.status } : retry.data
+      data = retry.data ? { ...retry.data, status: finalStatus } : retry.data
       error = retry.error
     }
 

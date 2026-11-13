@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import {
   AlertCircle, ArrowRight, Award, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronsUpDown, Clock3,
-  Edit3, Facebook, Filter, Heart, HelpCircle, Home, Image, Instagram, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle,
+  ChevronUp, Edit3, Facebook, Filter, GripVertical, Heart, HelpCircle, Home, Image, Instagram, LayoutDashboard, LogOut, MapPin, Menu, MessageCircle,
   Music2, PackageCheck, Plus, Search, Sparkles, Trash2, TrendingUp, User, X,
 } from 'lucide-react'
 import brandLogo from './assets/logo-desyana-v2.png'
@@ -484,16 +484,55 @@ function App() {
     const syncRoute = () => {
       const path = window.location.pathname
       if (path === '/admin') {
-        setPage('login')
+        setPage((curr) => (curr === 'admin' ? 'admin' : 'login'))
       } else if (publicRoutes.includes(path as any)) {
+        setPage('public')
         setPublicRoute(path as PublicRoute)
       } else {
+        setPage('public')
         setPublicRoute('404')
       }
     }
     window.addEventListener('popstate', syncRoute)
     return () => window.removeEventListener('popstate', syncRoute)
   }, [])
+
+  // Efek animasi scroll reveal saat elemen masuk ke viewport
+  useEffect(() => {
+    if (page !== 'public') return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible')
+          }
+        })
+      },
+      { threshold: 0.08, rootMargin: '0px 0px -20px 0px' }
+    )
+
+    const observeAll = () => {
+      const elements = document.querySelectorAll(
+        '.scroll-reveal, .scroll-reveal-left, .scroll-reveal-right, .scroll-reveal-zoom'
+      )
+      elements.forEach((el) => {
+        const rect = el.getBoundingClientRect()
+        if (rect.top < window.innerHeight && rect.bottom > 0) {
+          el.classList.add('is-visible')
+        }
+        observer.observe(el)
+      })
+    }
+
+    observeAll()
+    const timer = setTimeout(observeAll, 120)
+
+    return () => {
+      clearTimeout(timer)
+      observer.disconnect()
+    }
+  }, [page, publicRoute, store.packages])
 
   // Reset pagination when category or search changes
   useEffect(() => {
@@ -611,10 +650,12 @@ function App() {
       const priceMaxVal = value('priceMax')
       const priceMax = priceMaxVal ? Number(priceMaxVal) : undefined
       if (!name || !price || !value('image')) return setNotice('Nama, harga, dan foto wajib diisi.')
+      const previousPackage = item as Package | undefined
       const entity: Package = {
         id, name, category: value('category'), price, priceMax,
         image: value('image'), description: value('description'),
         features: value('features').split('\n').map((feature) => feature.trim()).filter(Boolean),
+        createdAt: item ? previousPackage?.createdAt : new Date().toISOString(),
       }
       setStore((current) => ({ ...current, packages: item ? current.packages.map((entry) => entry.id === id ? entity : entry) : [entity, ...current.packages] }))
       if (item) api.packages.update(id, entity).catch((e) => notifyBackendError('update paket', e))
@@ -727,6 +768,32 @@ function App() {
         setNotice('Data berhasil dihapus.')
       },
     })
+  }
+
+  function handleReorderPackages(reorderedList: Package[]) {
+    const now = Date.now()
+    const updatedList = reorderedList.map((pkg, index) => ({
+      ...pkg,
+      createdAt: new Date(now - index * 60000).toISOString(),
+    }))
+
+    setStore((current) => {
+      const nextStore = {
+        ...current,
+        packages: updatedList,
+      }
+      try {
+        localStorage.setItem(STORE_KEY, JSON.stringify(nextStore))
+      } catch (err) {
+        console.warn('Gagal simpan ke localStorage:', err)
+      }
+      return nextStore
+    })
+    api.packages.reorder(updatedList).catch((err) => {
+      console.warn('Gagal simpan urutan paket ke Supabase:', err)
+      setNotice('Gagal menyimpan urutan paket ke cloud.')
+    })
+    setNotice('Urutan katalog paket berhasil diperbarui.')
   }
 
   function saveSettings(event: FormEvent<HTMLFormElement>) {
@@ -928,6 +995,15 @@ function App() {
     setNotice('Booking tersimpan dan menunggu konfirmasi melalui WhatsApp.')
   }
 
+  function openAdminLogin() {
+    if (window.location.pathname !== '/admin') {
+      window.history.pushState({}, '', '/admin')
+    }
+    setMenuOpen(false)
+    setPage('login')
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   function beginBooking(item: Package) {
     setBookingPackage(item)
   }
@@ -954,6 +1030,7 @@ function App() {
   if (page === 'login') return <LoginPage
     store={store}
     onOwnerLogin={loginOwner}
+    onBackHome={() => navigatePublic('/')}
   />
 
   if (page === 'admin') return <>
@@ -963,6 +1040,7 @@ function App() {
       setActiveTab={setActiveTab}
       onOpen={openEditor}
       onDelete={deleteEntity}
+      onReorderPackages={handleReorderPackages}
       onCategoryRemove={removeCategory}
       onSettingsSave={saveSettings}
       onSavePortfolioConfig={savePortfolioConfig}
@@ -975,13 +1053,13 @@ function App() {
 
   return <div className="min-h-screen bg-white text-slate-900">
     <PublicNavbar
-      profileName={store.profile.name}
-      activeRoute={publicRoute}
-      menuOpen={menuOpen}
-      setMenuOpen={setMenuOpen}
-      onNavigate={navigatePublic}
-      phone={store.profile.phone}
-    />
+        profileName={store.profile.name}
+        activeRoute={publicRoute}
+        menuOpen={menuOpen}
+        setMenuOpen={setMenuOpen}
+        onNavigate={navigatePublic}
+        onOpenAdmin={openAdminLogin}
+      />
     <main>
       {publicRoute === '/' && (
         <>
@@ -1001,7 +1079,7 @@ function App() {
                 </div>
               </div>
             </div>
-            <div className="absolute bottom-8 right-8 hidden rounded-2xl border border-white/70 bg-white/80 p-4 shadow-lg backdrop-blur sm:block lg:right-[9%]">
+            <div className="absolute bottom-8 right-8 hidden rounded-2xl border border-white/70 bg-white/80 p-4 shadow-lg backdrop-blur sm:block lg:right-[9%] scroll-reveal-zoom">
               <div className="flex items-center gap-3">
                 <span className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-100 text-rose-600"><Heart size={19} fill="currentColor" /></span>
                 <div>
@@ -1475,13 +1553,13 @@ function PortfolioSection({
   )
 }
 
-function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavigate, phone }: {
+function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavigate, onOpenAdmin }: {
   profileName: string
   activeRoute: PublicRoute
   menuOpen: boolean
   setMenuOpen: (value: boolean) => void
   onNavigate: (route: PublicRoute) => void
-  phone: string
+  onOpenAdmin: () => void
 }) {
   const links = [
     { name: 'Beranda', href: '/' as PublicRoute, icon: Home },
@@ -1516,16 +1594,15 @@ function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavig
         ))}
       </nav>
 
-      {/* Sisi Kanan: Penyeimbang Navigasi & Tombol Kontak WhatsApp */}
+      {/* Sisi Kanan: Tombol Dashboard Admin */}
       <div className="z-10 hidden md:flex items-center justify-end">
-        <a
-          href={whatsappConsultationLink(phone, profileName)}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50/70 px-3.5 py-1.5 text-xs font-bold text-rose-700 transition hover:bg-rose-100 shadow-xs"
+        <button
+          type="button"
+          onClick={onOpenAdmin}
+          className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50/70 px-3.5 py-1.5 text-xs font-bold text-rose-700 transition hover:bg-rose-100 shadow-xs cursor-pointer"
         >
-          <MessageCircle size={14} className="text-rose-500" /> Konsultasi
-        </a>
+          <LayoutDashboard size={14} className="text-rose-600" /> Dashboard
+        </button>
       </div>
 
       {/* Tombol Hamburger Menu Mobile */}
@@ -1543,28 +1620,25 @@ function PublicNavbar({ profileName, activeRoute, menuOpen, setMenuOpen, onNavig
       <nav className="border-t border-rose-100 bg-white px-5 py-3 md:hidden">
         {links.map(({ name, href, icon: Icon }) => (
           <a
-            onClick={(event) => { event.preventDefault(); onNavigate(href) }}
             key={name}
             href={href}
             aria-current={activeRoute === href ? 'page' : undefined}
             className={`flex items-center justify-center gap-2 py-2.5 text-sm font-semibold ${
               activeRoute === href ? 'text-rose-600 font-bold bg-rose-50/60 rounded-lg' : 'text-slate-700'
             }`}
+            onClick={(event) => { event.preventDefault(); onNavigate(href) }}
           >
             <Icon size={16} />
             <span>{name}</span>
           </a>
         ))}
-        <div className="pt-2">
-          <a
-            href={whatsappConsultationLink(phone, profileName)}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center justify-center gap-2 rounded-xl bg-rose-500 py-2.5 text-sm font-bold text-white shadow-xs"
-          >
-            <MessageCircle size={16} /> Konsultasi via WhatsApp
-          </a>
-        </div>
+        <button
+          type="button"
+          onClick={() => { setMenuOpen(false); onOpenAdmin() }}
+          className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50/60 py-2.5 text-xs font-bold text-rose-700 hover:bg-rose-100 cursor-pointer"
+        >
+          <LayoutDashboard size={14} className="text-rose-600" /> Dashboard
+        </button>
       </nav>
     )}
   </header>
@@ -1651,7 +1725,7 @@ function WeddingServicesSection({
 
       <div className="relative mx-auto max-w-7xl px-5 sm:px-8 lg:px-12">
         {/* Section Header */}
-        <div className="text-center">
+        <div className="text-center scroll-reveal">
           <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-200/80 bg-rose-50/80 px-4 py-1.5 text-xs font-bold uppercase tracking-wider text-rose-600 shadow-2xs backdrop-blur">
             <Sparkles size={14} className="shrink-0 text-amber-500" />
             <span>Layanan Eksklusif Desy Salon</span>
@@ -1667,7 +1741,7 @@ function WeddingServicesSection({
           {/* Row 1: Tata Rias (Kiri: Foto, Kanan: Teks) */}
           <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-2 lg:gap-16 xl:gap-20">
             {/* Foto Tata Rias */}
-            <div className="group relative overflow-hidden rounded-3xl border border-rose-100/90 bg-white p-2.5 shadow-xl shadow-rose-950/5 transition-all duration-500 hover:border-rose-200 hover:shadow-2xl">
+            <div className="group relative overflow-hidden rounded-3xl border border-rose-100/90 bg-white p-2.5 shadow-xl shadow-rose-950/5 transition-all duration-500 hover:border-rose-200 hover:shadow-2xl scroll-reveal-left">
               <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-rose-50">
                 <img
                   src={fotoRiasImg}
@@ -1679,7 +1753,7 @@ function WeddingServicesSection({
             </div>
 
             {/* Teks Tata Rias */}
-            <div className="flex flex-col justify-center">
+            <div className="flex flex-col justify-center scroll-reveal-right">
               <h3 className="font-display text-lg font-semibold uppercase tracking-[0.05em] text-slate-900 whitespace-nowrap sm:text-2xl sm:tracking-[0.08em] lg:text-[23px] xl:text-[27px]">
                 TATA RIAS PENGANTIN <span className="font-sans font-medium text-[0.92em]">&amp;</span> WISUDA
               </h3>
@@ -1692,7 +1766,7 @@ function WeddingServicesSection({
           {/* Row 2: Salon & Spa (Kiri: Teks, Kanan: Foto) */}
           <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-2 lg:gap-16 xl:gap-20">
             {/* Teks Salon (Desktop kiri: order-1, Mobile: order-2) */}
-            <div className="order-2 flex flex-col justify-center lg:order-1">
+            <div className="order-2 flex flex-col justify-center lg:order-1 scroll-reveal-left">
               <h3 className="font-display text-lg font-semibold uppercase tracking-[0.05em] text-slate-900 whitespace-nowrap sm:text-2xl sm:tracking-[0.08em] lg:text-[23px] xl:text-[27px]">
                 PERAWATAN SALON
               </h3>
@@ -1702,7 +1776,7 @@ function WeddingServicesSection({
             </div>
 
             {/* Foto Salon (Desktop kanan: order-2, Mobile: order-1) */}
-            <div className="order-1 group relative overflow-hidden rounded-3xl border border-rose-100/90 bg-white p-2.5 shadow-xl shadow-rose-950/5 transition-all duration-500 hover:border-rose-200 hover:shadow-2xl lg:order-2">
+            <div className="order-1 group relative overflow-hidden rounded-3xl border border-rose-100/90 bg-white p-2.5 shadow-xl shadow-rose-950/5 transition-all duration-500 hover:border-rose-200 hover:shadow-2xl lg:order-2 scroll-reveal-right">
               <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl bg-rose-50">
                 <img
                   src={salonImg}
@@ -1745,7 +1819,7 @@ function FaqSection({ faqs, phone, salonName }: { faqs: FaqItem[]; phone: string
   return (
     <section id="faq" className="border-t border-rose-100/70 bg-gradient-to-b from-slate-50/80 via-rose-50/20 to-white px-5 py-16 sm:px-8 sm:py-20 lg:px-12">
       <div className="mx-auto max-w-3xl">
-        <div className="mb-9 text-center">
+        <div className="mb-9 text-center scroll-reveal">
           <div className="inline-flex items-center gap-1.5 rounded-full border border-rose-200/70 bg-rose-50/80 px-3.5 py-1 text-xs font-bold uppercase tracking-wider text-rose-600 shadow-2xs">
             <HelpCircle size={13} />
             <span>Desy Salon & Tata Rias</span>
@@ -1778,7 +1852,7 @@ function FaqSection({ faqs, phone, salonName }: { faqs: FaqItem[]; phone: string
           </div>
         </div>
 
-        <div className="space-y-3">
+        <div className="space-y-3 scroll-reveal-zoom">
           {filteredFaqs.length > 0 ? (
             <>
               {filteredFaqs.map((faq) => {
@@ -1865,7 +1939,7 @@ function PublicFooter({ store, onNavigate }: { store: SalonStore; onNavigate: (r
     { name: 'Sertifikat', href: '/sertifikat' },
   ]
   return <footer className="border-t border-slate-200 bg-slate-50 px-5 py-12 sm:px-8 lg:px-12">
-    <div className="mx-auto grid max-w-7xl gap-8 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.65fr)_minmax(0,0.95fr)_minmax(0,1.45fr)] lg:gap-7">
+    <div className="mx-auto grid max-w-7xl gap-8 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,0.65fr)_minmax(0,0.95fr)_minmax(0,1.45fr)] lg:gap-7 scroll-reveal">
       <div>
         <a href="/" onClick={(event) => { event.preventDefault(); onNavigate('/') }} className="inline-flex items-center"><img src={brandLogo} alt={store.profile.name} className="h-12 w-auto max-w-[220px] object-contain" /></a>
         <p className="mt-4 w-full text-sm font-medium leading-6 text-slate-700 lg:max-w-[230px]">Riasan penuh rasa sejak 1993, untuk hari-hari yang penuh makna. Mari siapkan momen terbaikmu bersama kami.</p>
@@ -2691,7 +2765,7 @@ function BookingModal({
   )
 }
 
-function LoginPage({ store, onOwnerLogin }: { store: SalonStore; onOwnerLogin: () => void }) {
+function LoginPage({ store, onOwnerLogin, onBackHome }: { store: SalonStore; onOwnerLogin: () => void; onBackHome?: () => void }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -2719,15 +2793,23 @@ function LoginPage({ store, onOwnerLogin }: { store: SalonStore; onOwnerLogin: (
         <div><label className="label" htmlFor="auth-password">Password</label><input required autoComplete="current-password" id="auth-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="field py-3" placeholder="Masukkan password" /></div>
         {error && <p role="alert" className="rounded-xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p>}
         <button type="submit" className="btn-primary w-full py-3">Masuk</button>
+        <button
+          type="button"
+          onClick={onBackHome || (() => { if (typeof window !== 'undefined') window.location.href = '/' })}
+          className="btn-secondary w-full py-3 text-slate-600 border border-slate-300 hover:bg-slate-100 hover:text-slate-800 transition"
+        >
+          Kembali ke Beranda
+        </button>
       </form>
     </div>
   </main>
 }
 
-function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCategoryRemove, onSettingsSave, onSavePortfolioConfig, onLogout }: {
+function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onReorderPackages, onCategoryRemove, onSettingsSave, onSavePortfolioConfig, onLogout }: {
   store: SalonStore; activeTab: AdminTab; setActiveTab: (tab: AdminTab) => void;
   onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category | Certificate | FaqItem) => void;
   onDelete: (collection: 'packages' | 'schedules' | 'gallery' | 'certificates' | 'faqs', id: string) => void;
+  onReorderPackages: (reorderedList: Package[]) => void;
   onCategoryRemove: (category: Category) => void;
   onSettingsSave: (event: FormEvent<HTMLFormElement>) => void;
   onSavePortfolioConfig: (source: 'fouita' | 'gallery', fouitaInput: string) => void;
@@ -2938,7 +3020,7 @@ function AdminDashboard({ store, activeTab, setActiveTab, onOpen, onDelete, onCa
 
         {/* Konten Menu Yang Bersangkutan (Hanya tampil 1 menu yang aktif) */}
         <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-          {activeTab === 'Katalog' && <PackagesManager store={store} onOpen={onOpen} onDelete={onDelete} />}
+          {activeTab === 'Katalog' && <PackagesManager store={store} onOpen={onOpen} onDelete={onDelete} onReorder={onReorderPackages} />}
           {activeTab === 'Kategori' && <CategoriesManager store={store} onOpen={onOpen} onRemove={onCategoryRemove} />}
           {activeTab === 'Jadwal' && <SchedulesManager store={store} onOpen={onOpen} onDelete={onDelete} />}
           {activeTab === 'Portfolio' && <GalleryManager store={store} onOpen={onOpen} onDelete={onDelete} onSavePortfolioConfig={onSavePortfolioConfig} />}
@@ -3178,20 +3260,30 @@ function SearchableSelect({
   )
 }
 
-function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void; onDelete: (collection: 'packages' | 'schedules' | 'gallery', id: string) => void }) {
+function PackagesManager({ store, onOpen, onDelete, onReorder }: {
+  store: SalonStore
+  onOpen: (kind: EditorKind, item?: Package | Schedule | GalleryItem | Category) => void
+  onDelete: (collection: 'packages' | 'schedules' | 'gallery', id: string) => void
+  onReorder: (reorderedList: Package[]) => void
+}) {
   const [search, setSearch] = useState('')
   const [selectedCategory, setSelectedCategory] = useState('Semua')
   const [sortOrder, setSortOrder] = useState<'default' | 'asc' | 'desc'>('default')
   const [currentPage, setCurrentPage] = useState(1)
+  const draggedIdRef = useRef<string | null>(null)
+  const [draggedId, setDraggedId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
 
-  // Otomatis reset ke urutan data terbaru (default) saat ada paket baru ditambahkan
+  // Otomatis reset ke urutan data terbaru (default) dan ke halaman 1 saat paket bertambah
   const prevCountRef = useRef(store.packages.length)
   useEffect(() => {
-    if (store.packages.length > prevCountRef.current) {
-      setSortOrder('default')
-      setCurrentPage(1)
+    if (store.packages.length !== prevCountRef.current) {
+      if (store.packages.length > prevCountRef.current) {
+        setSortOrder('default')
+        setCurrentPage(1)
+      }
+      prevCountRef.current = store.packages.length
     }
-    prevCountRef.current = store.packages.length
   }, [store.packages.length])
 
   const filteredAndSorted = useMemo(() => {
@@ -3216,6 +3308,34 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
     })
   }, [store.packages, selectedCategory, search, sortOrder])
 
+  const isReorderEnabled = sortOrder === 'default' && selectedCategory === 'Semua' && !search.trim()
+
+  function handleMove(sourceId: string, targetId: string) {
+    if (!sourceId || !targetId || sourceId === targetId) return
+    const currentList = [...store.packages]
+    const sourceIndex = currentList.findIndex((p) => p.id === sourceId)
+    const targetIndex = currentList.findIndex((p) => p.id === targetId)
+    if (sourceIndex === -1 || targetIndex === -1) return
+
+    const [movedItem] = currentList.splice(sourceIndex, 1)
+    currentList.splice(targetIndex, 0, movedItem)
+
+    onReorder(currentList)
+  }
+
+  function handleMoveStep(id: string, direction: 'up' | 'down') {
+    const currentList = [...store.packages]
+    const index = currentList.findIndex((p) => p.id === id)
+    if (index === -1) return
+    const targetIndex = direction === 'up' ? index - 1 : index + 1
+    if (targetIndex < 0 || targetIndex >= currentList.length) return
+
+    const [moved] = currentList.splice(index, 1)
+    currentList.splice(targetIndex, 0, moved)
+
+    onReorder(currentList)
+  }
+
   const totalItems = filteredAndSorted.length
   const totalPages = Math.ceil(totalItems / 6) || 1
   const validPage = Math.min(currentPage, totalPages)
@@ -3226,7 +3346,6 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
     <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div className="shrink-0">
         <h2 className="text-lg font-bold text-slate-900">Kelola Paket</h2>
-        <p className="mt-0.5 text-xs text-slate-500 sm:text-sm">Atur layanan, harga, dan informasi katalog publik.</p>
       </div>
 
       <div className="flex flex-col sm:flex-row flex-wrap items-center gap-2 lg:flex-nowrap w-full lg:w-auto">
@@ -3262,14 +3381,14 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
             }}
             placeholder="Filter Kategori"
             searchPlaceholder="Cari kategori..."
-            className="w-full sm:w-48 shrink-0"
+            className="w-full sm:w-52 shrink-0"
             buttonClassName="h-[42px] min-h-[42px] px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-slate-200 bg-white hover:border-rose-200 hover:bg-slate-50 text-slate-700 shadow-2xs"
           />
 
           {/* Tombol Tambah Paket */}
           <button
             onClick={() => onOpen('package')}
-            className="btn-primary !px-3 sm:!px-4 !py-2.5 text-sm min-h-[42px] shrink-0 whitespace-nowrap justify-center w-full sm:w-auto"
+            className="btn-primary !px-3 sm:!px-4 !py-2.5 text-sm min-h-[42px] shrink-0 whitespace-nowrap justify-center w-full sm:w-auto cursor-pointer"
           >
             <Plus size={16} />Tambah paket
           </button>
@@ -3278,12 +3397,59 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
     </div>
 
     {paginated.length ? <>
-      <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:hidden">
-        {paginated.map((item) => (
-          <article key={item.id} className="flex flex-col justify-between min-w-0 rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3.5 shadow-xs transition hover:border-rose-200">
+      {/* Tampilan Mobile Card dengan Tombol Naik/Turun & Drag Handle */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-4 lg:hidden">
+        {paginated.map((item, idx) => (
+          <article
+            key={item.id}
+            draggable={isReorderEnabled}
+            onDragStart={(e) => {
+              if (!isReorderEnabled) return
+              draggedIdRef.current = item.id
+              e.dataTransfer.setData('text/plain', item.id)
+              e.dataTransfer.effectAllowed = 'move'
+              requestAnimationFrame(() => {
+                setDraggedId(item.id)
+              })
+            }}
+            onDragOver={(e) => {
+              if (!isReorderEnabled) return
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'move'
+              if (dragOverId !== item.id) setDragOverId(item.id)
+            }}
+            onDragEnter={(e) => {
+              if (!isReorderEnabled) return
+              e.preventDefault()
+              if (dragOverId !== item.id) setDragOverId(item.id)
+            }}
+            onDragEnd={() => {
+              draggedIdRef.current = null
+              setDraggedId(null)
+              setDragOverId(null)
+            }}
+            onDrop={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              const srcId = e.dataTransfer.getData('text/plain') || draggedIdRef.current
+              if (srcId && srcId !== item.id) {
+                handleMove(srcId, item.id)
+              }
+              draggedIdRef.current = null
+              setDraggedId(null)
+              setDragOverId(null)
+            }}
+            className={`flex flex-col justify-between min-w-0 rounded-xl border bg-white p-3 shadow-xs transition select-none ${
+              dragOverId === item.id ? 'border-rose-500 ring-2 ring-rose-200 bg-rose-50/40' : 'border-slate-200 hover:border-rose-200'
+            } ${draggedId === item.id ? 'opacity-50' : ''}`}
+          >
             <div>
               <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg bg-slate-100">
-                <img src={item.image} alt={item.name} className="h-full w-full object-cover" />
+                <img src={item.image} alt={item.name} className="h-full w-full object-cover pointer-events-none" />
+                <div className="absolute top-2 left-2 flex items-center gap-1 rounded-md bg-white/90 px-2 py-0.5 text-[10px] font-bold text-slate-700 backdrop-blur shadow-2xs">
+                  <GripVertical size={12} className="text-slate-400 pointer-events-none" />
+                  <span>#{idx + 1 + (validPage - 1) * 6}</span>
+                </div>
               </div>
               <div className="mt-2 min-w-0">
                 <span className="inline-block rounded-md bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-600">
@@ -3304,23 +3470,47 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
                 </p>
               </div>
             </div>
-            <div className="mt-2.5 border-t border-slate-100 pt-2 flex items-center justify-end">
+            <div className="mt-2.5 border-t border-slate-100 pt-2 flex items-center justify-between">
+              {/* Tombol Urutan Mobile Naik/Turun */}
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  title="Geser ke atas"
+                  onClick={() => handleMoveStep(item.id, 'up')}
+                  disabled={!isReorderEnabled || (validPage === 1 && idx === 0)}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <ChevronUp size={14} />
+                </button>
+                <button
+                  type="button"
+                  title="Geser ke bawah"
+                  onClick={() => handleMoveStep(item.id, 'down')}
+                  disabled={!isReorderEnabled || (validPage === totalPages && idx === paginated.length - 1)}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <ChevronDown size={14} />
+                </button>
+              </div>
               <RowActions onEdit={() => onOpen('package', item)} onDelete={() => onDelete('packages', item.id)} />
             </div>
           </article>
         ))}
       </div>
+
+      {/* Tampilan Desktop Table dengan Drag & Drop Geser Urutan */}
       <div className="hidden overflow-x-auto lg:block">
         <table className="w-full min-w-[800px] text-left">
           <thead>
             <tr className="border-y border-slate-100 text-[11px] uppercase tracking-wider text-slate-500">
+              <th className="py-3 pl-3 pr-2 font-semibold w-16 text-center">Urut</th>
               <th
-                className="py-3 pr-4 font-semibold cursor-pointer select-none hover:text-rose-600"
+                className="py-3 px-4 font-semibold cursor-pointer select-none hover:text-rose-600"
                 onClick={() => {
                   setSortOrder((prev) => (prev === 'default' ? 'asc' : prev === 'asc' ? 'desc' : 'asc'))
                   setCurrentPage(1)
                 }}
-                title={sortOrder === 'default' ? 'Urutan: Data Terbaru (Klik untuk A-Z)' : sortOrder === 'asc' ? 'Urutan: A-Z (Klik untuk Z-A)' : 'Urutan: Z-A (Klik untuk A-Z)'}
+                title={sortOrder === 'default' ? 'Urutan: Kustom / Terbaru (Klik untuk A-Z)' : sortOrder === 'asc' ? 'Urutan: A-Z (Klik untuk Z-A)' : 'Urutan: Z-A (Klik untuk Kustom)'}
               >
                 <div className="flex items-center gap-1.5">
                   <span>PAKET</span>
@@ -3329,17 +3519,103 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
               </th>
               <th className="px-4 py-3 font-semibold">Kategori</th>
               <th className="px-4 py-3 font-semibold">Harga</th>
-              <th className="py-3 pl-4 text-center font-semibold">Aksi</th>
+              <th className="py-3 pl-4 pr-3 text-center font-semibold">Aksi</th>
             </tr>
           </thead>
           <tbody>
-            {paginated.map((item) => (
-              <tr key={item.id} className="border-b border-slate-100 last:border-0">
-                <td className="py-3 pr-4">
+            {paginated.map((item, idx) => (
+              <tr
+                key={item.id}
+                draggable={isReorderEnabled}
+                onDragStart={(e) => {
+                  if (!isReorderEnabled) return
+                  draggedIdRef.current = item.id
+                  e.dataTransfer.setData('text/plain', item.id)
+                  e.dataTransfer.effectAllowed = 'move'
+                  requestAnimationFrame(() => {
+                    setDraggedId(item.id)
+                  })
+                }}
+                onDragOver={(e) => {
+                  if (!isReorderEnabled) return
+                  e.preventDefault()
+                  e.dataTransfer.dropEffect = 'move'
+                  if (dragOverId !== item.id) setDragOverId(item.id)
+                }}
+                onDragEnter={(e) => {
+                  if (!isReorderEnabled) return
+                  e.preventDefault()
+                  if (dragOverId !== item.id) setDragOverId(item.id)
+                }}
+                onDragEnd={() => {
+                  draggedIdRef.current = null
+                  setDraggedId(null)
+                  setDragOverId(null)
+                }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  const srcId = e.dataTransfer.getData('text/plain') || draggedIdRef.current
+                  if (srcId && srcId !== item.id) {
+                    handleMove(srcId, item.id)
+                  }
+                  draggedIdRef.current = null
+                  setDraggedId(null)
+                  setDragOverId(null)
+                }}
+                className={`border-b border-slate-100 last:border-0 transition-colors select-none ${
+                  dragOverId === item.id ? 'bg-rose-50/80 ring-2 ring-inset ring-rose-400' : 'hover:bg-slate-50/70'
+                } ${draggedId === item.id ? 'opacity-40' : ''}`}
+              >
+                {/* Kolom Handle Drag & Drop */}
+                <td className="py-3 pl-3 pr-2 text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <div
+                      title={isReorderEnabled ? 'Tahan dan geser untuk memindahkan urutan paket' : 'Reset sortir ke default untuk menggeser'}
+                      className={`inline-flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 ${
+                        isReorderEnabled ? 'cursor-grab active:cursor-grabbing' : 'opacity-40 cursor-not-allowed'
+                      }`}
+                    >
+                      <GripVertical size={16} className="pointer-events-none" />
+                    </div>
+                    <div className="flex flex-col -space-y-0.5">
+                      <button
+                        type="button"
+                        title="Pindah 1 baris ke atas"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleMoveStep(item.id, 'up')
+                        }}
+                        disabled={!isReorderEnabled || (validPage === 1 && idx === 0)}
+                        className="flex h-4.5 w-4.5 items-center justify-center rounded text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition"
+                      >
+                        <ChevronUp size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Pindah 1 baris ke bawah"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleMoveStep(item.id, 'down')
+                        }}
+                        disabled={!isReorderEnabled || (validPage === totalPages && idx === paginated.length - 1)}
+                        className="flex h-4.5 w-4.5 items-center justify-center rounded text-slate-400 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-20 disabled:cursor-not-allowed cursor-pointer transition"
+                      >
+                        <ChevronDown size={12} />
+                      </button>
+                    </div>
+                  </div>
+                </td>
+                <td className="py-3 px-4">
                   <div className="flex items-center gap-3">
-                    <img src={item.image} alt="" className="h-11 w-14 rounded-lg object-cover" />
+                    <img src={item.image} alt="" className="h-11 w-14 rounded-lg object-cover shrink-0 pointer-events-none" />
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-800">{item.name}</p>
+                      <p className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                        <span>{item.name}</span>
+                        <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                          #{idx + 1 + (validPage - 1) * 6}
+                        </span>
+                      </p>
                       <p className="max-w-xs truncate text-xs text-slate-500">{item.description}</p>
                     </div>
                   </div>
@@ -3352,7 +3628,32 @@ function PackagesManager({ store, onOpen, onDelete }: { store: SalonStore; onOpe
                       ? `${rupiah(item.price)} – ${rupiah(item.priceMax)}`
                       : `Mulai ${rupiah(item.price)}`}
                 </td>
-                <td className="py-3 pl-4"><RowActions onEdit={() => onOpen('package', item)} onDelete={() => onDelete('packages', item.id)} /></td>
+                <td className="py-3 pl-4 pr-3">
+                  <div className="flex items-center justify-end gap-1.5">
+                    {/* Tombol Cepat Geser Naik / Turun */}
+                    <div className="flex items-center gap-1 mr-2 border-r border-slate-200 pr-2">
+                      <button
+                        type="button"
+                        title="Geser ke atas"
+                        onClick={() => handleMoveStep(item.id, 'up')}
+                        disabled={!isReorderEnabled || (validPage === 1 && idx === 0)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        <ChevronUp size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        title="Geser ke bawah"
+                        onClick={() => handleMoveStep(item.id, 'down')}
+                        disabled={!isReorderEnabled || (validPage === totalPages && idx === paginated.length - 1)}
+                        className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        <ChevronDown size={13} />
+                      </button>
+                    </div>
+                    <RowActions onEdit={() => onOpen('package', item)} onDelete={() => onDelete('packages', item.id)} />
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -4684,16 +4985,18 @@ function FaqManager({
                     </span>
                   </div>
                   <h3
-                    className="mt-2.5 h-11 text-sm font-bold leading-snug text-slate-900 line-clamp-2 overflow-hidden"
+                    className="mt-2.5 text-sm font-bold leading-snug text-slate-900 line-clamp-2"
                     title={item.question}
                   >
                     {item.question}
                   </h3>
                   <p
-                    className="mt-2 h-[72px] text-xs leading-relaxed text-slate-600 line-clamp-3 overflow-hidden"
+                    className="mt-2 text-xs leading-relaxed text-slate-600 line-clamp-3"
                     title={item.answer}
                   >
-                    {item.answer}
+                    {item.answer && item.answer.length > 120
+                      ? item.answer.slice(0, 115).trimEnd() + '...'
+                      : item.answer}
                   </p>
                 </div>
 
