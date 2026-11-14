@@ -464,10 +464,36 @@ function SectionHeading({ eyebrow, title, description, align = 'center' }: { eye
 }
 
 const ITEMS_PER_PAGE = 6
+const ADMIN_LOGGED_IN_KEY = 'desy_salon_admin_logged_in'
+
+function isAdminSessionActive(): boolean {
+  try {
+    return typeof window !== 'undefined' && sessionStorage.getItem(ADMIN_LOGGED_IN_KEY) === 'true'
+  } catch {
+    return false
+  }
+}
+
+function setAdminSession(active: boolean) {
+  try {
+    if (typeof window === 'undefined') return
+    if (active) {
+      sessionStorage.setItem(ADMIN_LOGGED_IN_KEY, 'true')
+    } else {
+      sessionStorage.removeItem(ADMIN_LOGGED_IN_KEY)
+    }
+  } catch {}
+}
 
 function App() {
   const [store, setStore] = useState<SalonStore>(readStore)
-  const [page, setPage] = useState<'public' | 'login' | 'admin'>(() => window.location.pathname === '/admin' ? 'login' : 'public')
+  const [page, setPage] = useState<'public' | 'login' | 'admin'>(() => {
+    if (typeof window === 'undefined') return 'public'
+    if (window.location.pathname === '/admin') {
+      return isAdminSessionActive() ? 'admin' : 'login'
+    }
+    return 'public'
+  })
   const [publicRoute, setPublicRoute] = useState<PublicRoute>(() => {
     const path = window.location.pathname
     if (path === '/admin') return '/'
@@ -488,8 +514,9 @@ function App() {
     const syncRoute = () => {
       const path = window.location.pathname
       if (path === '/admin') {
-        setPage((curr) => (curr === 'admin' ? 'admin' : 'login'))
+        setPage(isAdminSessionActive() ? 'admin' : 'login')
       } else if (publicRoutes.includes(path as any)) {
+        setAdminSession(false)
         setPage('public')
         setPublicRoute(path as PublicRoute)
       } else {
@@ -581,6 +608,7 @@ function App() {
         try {
           const authCheck = await api.auth.me()
           if (isMounted && authCheck.authenticated && window.location.pathname === '/admin') {
+            setAdminSession(true)
             setPage('admin')
           }
         } catch {
@@ -1070,7 +1098,7 @@ function App() {
       window.history.pushState({}, '', '/admin')
     }
     setMenuOpen(false)
-    setPage('login')
+    setPage(isAdminSessionActive() ? 'admin' : 'login')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -1079,11 +1107,13 @@ function App() {
   }
 
   function loginOwner() {
+    setAdminSession(true)
     setPage('admin')
     setNotice('Selamat datang kembali, Desy.')
   }
 
   function logout() {
+    setAdminSession(false)
     api.auth.logout()
     setPage('public')
     setActiveTab('Katalog')
@@ -1101,6 +1131,7 @@ function App() {
     store={store}
     onOwnerLogin={loginOwner}
     onBackHome={() => {
+      setAdminSession(false)
       setPage('public')
       navigatePublic('/')
     }}
@@ -1119,6 +1150,7 @@ function App() {
       onSavePortfolioConfig={savePortfolioConfig}
       onLogout={confirmLogout}
       onBackHome={() => {
+        setAdminSession(false)
         setPage('public')
         navigatePublic('/')
       }}
